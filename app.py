@@ -332,7 +332,7 @@ with st.sidebar:
         "💰 Max Capital per Lot (₹)",
         min_value=50_000,
         max_value=2_000_000,
-        value=150_000,
+        value=1500_000,
         step=10_000,
         format="₹%d"
     )
