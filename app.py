@@ -251,6 +251,13 @@ FO_STOCKS = {
     'IRCTC.NS':      {'lot': 875,  'sector': 'Railways'},
 }
 
+# ── HK Stock Universe ────────────────────────────────────────────────────────
+HK_STOCKS = {
+    '0823.HK': {'lot': 1000, 'sector': 'REIT',  'name': 'Link REIT'},
+    '9888.HK': {'lot': 150,  'sector': 'Tech',  'name': 'Baidu'},
+    '1810.HK': {'lot': 1000, 'sector': 'Tech',  'name': 'Xiaomi'},
+}
+
 # ── Screener Logic ───────────────────────────────────────────────────────────
 def fetch_stock_data(ticker, lot_size, max_capital, expiry_days=30):
     try:
@@ -329,6 +336,85 @@ def fetch_stock_data(ticker, lot_size, max_capital, expiry_days=30):
     except:
         return None
 
+# ── HK Screener Logic ───────────────────────────────────────────────────────
+def fetch_hk_stock_data(ticker, lot_size, max_capital_hkd, expiry_days=30):
+    try:
+        stock = yf.Ticker(ticker)
+        hist  = stock.history(period='1y')
+        if len(hist) < 50:
+            return None
+
+        # Store hist for charting
+        clean_key = ticker.replace('.HK', '').lstrip('0')
+        st.session_state.hist_data[clean_key] = hist
+
+        info          = stock.info
+        current_price = hist['Close'].iloc[-1]
+
+        ma50  = hist['Close'].rolling(50).mean().iloc[-1]
+        ma200 = hist['Close'].rolling(200).mean().iloc[-1] if len(hist) >= 200 else None
+        above_50dma  = bool(current_price > ma50)
+        above_200dma = bool(current_price > ma200) if ma200 else None
+
+        high_52w      = hist['High'].max()
+        low_52w       = hist['Low'].min()
+        pct_from_high = ((high_52w - current_price) / high_52w) * 100
+        pct_from_low  = ((current_price - low_52w) / low_52w) * 100
+
+        returns = hist['Close'].pct_change().dropna()
+        hv_30   = returns[-30:].std() * np.sqrt(252) * 100
+
+        annual_div     = info.get('dividendRate') or 0
+        dividend_yield = min((annual_div / current_price * 100) if current_price > 0 else 0, 20.0)
+
+        # Strike calculations (round to nearest 0.5 HKD)
+        sigma      = hv_30 / 100
+        sqrtT      = np.sqrt(expiry_days / 365)
+        strike_d30 = round(current_price * np.exp(-0.524 * sigma * sqrtT) * 2) / 2
+        strike_d25 = round(current_price * np.exp(-0.674 * sigma * sqrtT) * 2) / 2
+        strike_5pct = round(current_price * 0.95 * 2) / 2
+        capital_required = strike_5pct * lot_size  # in HKD
+
+        # Wheel Score (same logic)
+        score = 0
+        if above_50dma:  score += 10
+        if above_200dma: score += 15
+        if 10 <= pct_from_high <= 35:   score += 25
+        elif 5 <= pct_from_high < 10:   score += 15
+        elif 35 < pct_from_high <= 50:  score += 10
+        if 20 <= hv_30 <= 45:           score += 20
+        elif 15 <= hv_30 < 20:          score += 10
+        elif 45 < hv_30 <= 60:          score += 10
+        if dividend_yield >= 4:         score += 15
+        elif dividend_yield >= 2:       score += 10
+        elif dividend_yield >= 1:       score += 5
+        if capital_required <= max_capital_hkd:          score += 15
+        elif capital_required <= max_capital_hkd * 1.5:  score += 8
+
+        display_ticker = HK_STOCKS[ticker]['name']
+
+        return {
+            'ticker':           display_ticker,
+            'hk_ticker':        ticker,
+            'name':             info.get('longName', display_ticker)[:28],
+            'sector':           HK_STOCKS[ticker]['sector'],
+            'lot_size':         lot_size,
+            'current_price':    round(current_price, 2),
+            'strike_d30':       strike_d30,
+            'strike_d25':       strike_d25,
+            'strike_5pct':      strike_5pct,
+            'capital_required': capital_required,
+            'above_50dma':      above_50dma,
+            'above_200dma':     above_200dma,
+            'pct_from_high':    round(pct_from_high, 1),
+            'hv_30':            round(hv_30, 1),
+            'dividend_yield':   round(dividend_yield, 2),
+            'wheel_score':      score,
+            'currency':         'HKD',
+        }
+    except:
+        return None
+
 # ── Session State ────────────────────────────────────────────────────────────
 if 'show_chart' not in st.session_state:
     st.session_state.show_chart = {}
@@ -338,6 +424,10 @@ if 'scan_time' not in st.session_state:
     st.session_state.scan_time = None
 if 'hist_data' not in st.session_state:
     st.session_state.hist_data = {}
+if 'hk_scan_results' not in st.session_state:
+    st.session_state.hk_scan_results = None
+if 'hk_scan_time' not in st.session_state:
+    st.session_state.hk_scan_time = None
 
 def toggle_chart(ticker):
     st.session_state.show_chart[ticker] = not st.session_state.show_chart.get(ticker, False)
@@ -464,7 +554,20 @@ with st.sidebar:
     st.markdown(f"<p style='color:#00d4aa; font-weight:700; font-size:0.9rem; margin-top:-10px'>Selected: {min_score}/100</p>", unsafe_allow_html=True)
 
     st.markdown("---")
-    run_btn = st.button("🚀 Run Screener", use_container_width=True)
+    run_btn = st.button("🚀 Run NSE Screener", use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("### 🇭🇰 Hong Kong")
+    max_capital_hkd = st.slider(
+        "💰 Max Capital per Lot (HKD)",
+        min_value=5_000,
+        max_value=200_000,
+        value=50_000,
+        step=5_000,
+        format="HK$%d"
+    )
+    st.markdown(f"<p style='color:#00d4aa; font-weight:700; font-size:0.9rem; margin-top:-10px'>Selected: HK${max_capital_hkd:,}</p>", unsafe_allow_html=True)
+    hk_run_btn = st.button("🚀 Run HK Screener", use_container_width=True)
 
     st.markdown("---")
     st.markdown("### 📌 Open a Demat Account")
@@ -811,6 +914,123 @@ else:
         mime="text/csv",
         use_container_width=True
     )
+
+# ── HK Screener Results ─────────────────────────────────────────────────────
+st.markdown("---")
+st.markdown("""
+<div class='main-header' style='margin-top:1rem;'>
+    <h1>🇭🇰 HKEX WHEEL SCREENER</h1>
+    <p>Cash-Secured Put (CSP) Candidates · Hong Kong Options · Real-Time Data</p>
+</div>
+""", unsafe_allow_html=True)
+
+def render_hk_card(r):
+    card_class = 'tier1-card' if r['wheel_score'] >= 55 and r['above_200dma'] else 'tier2-card'
+    trend_tag  = "<span class='tag tag-green'>📈 Above 200DMA</span>" if r['above_200dma'] else                  "<span class='tag tag-yellow'>〰️ Above 50DMA</span>" if r['above_50dma'] else                  "<span class='tag tag-red'>📉 Below MAs</span>"
+    div_tag    = f"<span class='tag tag-blue'>💰 Div {r['dividend_yield']:.1f}%</span>" if r['dividend_yield'] > 0 else ""
+    score_cls  = "score-high" if r['wheel_score'] >= 60 else "score-mid"
+    cap_d30    = r['strike_d30'] * r['lot_size']
+    cap_d25    = r['strike_d25'] * r['lot_size']
+    cap_5pct   = r['strike_5pct'] * r['lot_size']
+    chart_key  = r['hk_ticker'].replace('.HK','').lstrip('0')
+    chart_open = st.session_state.show_chart.get(chart_key, True)
+    chart_label= "📉 Hide Chart" if chart_open else "📈 View Chart"
+
+    st.markdown(f"""
+    <div class='{card_class}'>
+        <div style='display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px'>
+            <div>
+                <span class='ticker-name'>{r['ticker']}</span>
+                <span style='color:#6b8fa8; margin-left:8px; font-size:0.85rem'>{r['hk_ticker']}</span>
+            </div>
+            <span class='score-badge {score_cls}'>Score {r['wheel_score']}/100</span>
+        </div>
+        <div style='margin-top:8px; display:flex; gap:12px; flex-wrap:wrap; font-size:0.85rem; color:#a0b4c0'>
+            <span>🏭 {r['sector']}</span>
+            <span>📦 Lot: {r['lot_size']:,}</span>
+            <span>💵 CMP: <strong style='color:#fff'>HK${r['current_price']:,.2f}</strong></span>
+            <span>📉 From 52W High: <strong style='color:#f5a623'>-{r['pct_from_high']:.1f}%</strong></span>
+            <span>🌡️ HV30: {r['hv_30']:.1f}%</span>
+        </div>
+        <div style='margin-top:6px'>{trend_tag}{div_tag}</div>
+        <div class='strike-box'>
+            <div style='color:#6b8fa8; font-size:0.72rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px'>
+                Strike Suggestions · HKD
+            </div>
+            <div class='strike-row'>
+                <span class='strike-label'>🟢 Delta ~0.30 (Aggressive)</span>
+                <span class='strike-value'>HK${r['strike_d30']:,.1f}</span>
+                <span class='strike-capital'>Capital: HK${cap_d30:,.0f}</span>
+            </div>
+            <div class='strike-row'>
+                <span class='strike-label'>🟡 Delta ~0.25 (Moderate)</span>
+                <span class='strike-value'>HK${r['strike_d25']:,.1f}</span>
+                <span class='strike-capital'>Capital: HK${cap_d25:,.0f}</span>
+            </div>
+            <div class='strike-row'>
+                <span class='strike-label'>🔵 5% OTM (Conservative)</span>
+                <span class='strike-value'>HK${r['strike_5pct']:,.1f}</span>
+                <span class='strike-capital'>Capital: HK${cap_5pct:,.0f}</span>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.button(
+        chart_label,
+        key=f"hk_chart_btn_{r['hk_ticker']}",
+        on_click=toggle_chart,
+        args=(chart_key,)
+    )
+    if chart_open:
+        render_plotly_chart(chart_key)
+
+if hk_run_btn:
+    st.session_state.hk_scan_results = None
+    st.session_state.show_chart = {k: v for k, v in st.session_state.show_chart.items()
+                                    if not k.isdigit()}
+    hk_results = []
+    hk_progress = st.progress(0, text="🔍 Scanning HKEX stocks...")
+    for i, (ticker, meta) in enumerate(HK_STOCKS.items()):
+        hk_progress.progress((i+1)/len(HK_STOCKS),
+            text=f"🔍 Scanning {meta['name']} ({i+1}/{len(HK_STOCKS)})...")
+        data = fetch_hk_stock_data(ticker, meta['lot'], max_capital_hkd, 30)
+        if data:
+            hk_results.append(data)
+            st.session_state.show_chart[data['hk_ticker'].replace('.HK','').lstrip('0')] = True
+    hk_progress.empty()
+    st.session_state.hk_scan_results = hk_results
+    st.session_state.hk_scan_time = datetime.now().strftime('%d %b %Y, %I:%M %p')
+
+if st.session_state.hk_scan_results:
+    hk_results = st.session_state.hk_scan_results
+    st.markdown(f"### 📊 HK Scan Results — {st.session_state.get('hk_scan_time', '')}")
+    h1, h2, h3 = st.columns(3)
+    tier1_hk = [r for r in hk_results if r['wheel_score'] >= 55 and r['above_200dma']]
+    tier2_hk = [r for r in hk_results if r not in tier1_hk]
+    with h1:
+        st.markdown(f"<div class='metric-box'><div class='label'>Stocks Scanned</div><div class='value'>{len(hk_results)}</div></div>", unsafe_allow_html=True)
+    with h2:
+        st.markdown(f"<div class='metric-box'><div class='label'>Tier 1 (Best)</div><div class='value'>{len(tier1_hk)}</div></div>", unsafe_allow_html=True)
+    with h3:
+        st.markdown(f"<div class='metric-box'><div class='label'>Tier 2 (Watch)</div><div class='value'>{len(tier2_hk)}</div></div>", unsafe_allow_html=True)
+
+    st.markdown("---")
+    if tier1_hk:
+        st.markdown("## 🏆 Tier 1 — Best HK CSP Candidates")
+        for r in tier1_hk:
+            render_hk_card(r)
+    if tier2_hk:
+        st.markdown("## 👀 Tier 2 — HK Watchlist")
+        for r in tier2_hk:
+            render_hk_card(r)
+else:
+    st.markdown("""
+    <div style='text-align:center; padding:2rem; color:#4a6070'>
+        <div style='font-size:3rem'>🇭🇰</div>
+        <p>Click <strong style='color:#00d4aa'>Run HK Screener</strong> to scan Link REIT, Baidu & Xiaomi</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ── Disclaimer ───────────────────────────────────────────────────────────────
 st.markdown("""
