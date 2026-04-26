@@ -328,7 +328,7 @@ with st.sidebar:
     st.markdown("## ⚙️ Configuration")
     st.markdown("---")
 
-  max_capital = st.slider(
+max_capital = st.slider(
         "💰 Max Capital per Lot (₹)",
         min_value=50_000,
         max_value=2_000_000,
