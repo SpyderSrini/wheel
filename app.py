@@ -324,9 +324,13 @@ def fetch_stock_data(ticker, lot_size, max_capital, expiry_days=30):
     except:
         return None
 
-# ── Session State for chart toggles ─────────────────────────────────────────
+# ── Session State ────────────────────────────────────────────────────────────
 if 'show_chart' not in st.session_state:
     st.session_state.show_chart = {}
+if 'scan_results' not in st.session_state:
+    st.session_state.scan_results = None
+if 'scan_time' not in st.session_state:
+    st.session_state.scan_time = None
 
 def toggle_chart(ticker):
     st.session_state.show_chart[ticker] = not st.session_state.show_chart.get(ticker, False)
@@ -334,20 +338,41 @@ def toggle_chart(ticker):
 def render_tradingview_chart(ticker):
     """Render an embedded TradingView chart for an NSE stock"""
     tv_symbol = f"NSE:{ticker}"
+    unique_id = f"tv_{ticker}_{id(ticker)}"
     chart_html = f"""
-    <div style="border-radius:10px; overflow:hidden; margin-top:12px;">
-    <div class="tradingview-widget-container" style="height:420px;">
-      <iframe
-        src="https://s.tradingview.com/widgetembed/?frameElementId=tv_{ticker}&symbol={tv_symbol}&interval=D&hidesidetoolbar=0&hidetoptoolbar=0&symboledit=0&saveimage=0&toolbarbg=0d1a26&studies=MASimple%40tv-basicstudies%7CEMA%40tv-basicstudies&theme=dark&style=1&timezone=Asia%2FKolkata&withdateranges=1&showpopupbutton=0&studies_overrides=%7B%7D&overrides=%7B%7D&enabled_features=%5B%5D&disabled_features=%5B%5D&locale=en&utm_source=&utm_medium=widget_new&utm_campaign=chart&utm_term={tv_symbol}"
-        style="width:100%; height:420px; border:none; border-radius:10px;"
-        allowtransparency="true"
-        scrolling="no"
-        allowfullscreen="">
-      </iframe>
-    </div>
+    <div style="border-radius:10px; overflow:hidden; margin-top:12px; background:#0d1a26;">
+      <div class="tradingview-widget-container">
+        <div id="{unique_id}"></div>
+        <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+        <script type="text/javascript">
+          new TradingView.widget({{
+            "autosize": true,
+            "height": 420,
+            "symbol": "{tv_symbol}",
+            "interval": "D",
+            "timezone": "Asia/Kolkata",
+            "theme": "dark",
+            "style": "1",
+            "locale": "en",
+            "toolbar_bg": "#0d1a26",
+            "enable_publishing": false,
+            "hide_side_toolbar": false,
+            "allow_symbol_change": false,
+            "studies": [
+              "MASimple@tv-basicstudies",
+              "MAExp@tv-basicstudies"
+            ],
+            "studies_overrides": {{
+              "moving average.length": 50,
+              "moving average exponential.length": 200
+            }},
+            "container_id": "{unique_id}"
+          }});
+        </script>
+      </div>
     </div>
     """
-    components.html(chart_html, height=435)
+    components.html(chart_html, height=440)
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -436,6 +461,10 @@ with st.expander("ℹ️ How this screener works"):
 
 # ── Results ──────────────────────────────────────────────────────────────────
 if run_btn:
+    # Clear previous results and chart states on fresh scan
+    st.session_state.show_chart = {}
+    st.session_state.scan_results = None
+
     filtered_stocks = {
         k: v for k, v in FO_STOCKS.items()
         if not sectors or v['sector'] in sectors
@@ -455,6 +484,8 @@ if run_btn:
             results.append(data)
 
     progress_bar.empty()
+    st.session_state.scan_results = results
+    st.session_state.scan_time = datetime.now().strftime('%d %b %Y, %I:%M %p')
 
     if not results:
         st.warning("No stocks matched your criteria. Try lowering the minimum score or increasing capital limit.")
@@ -589,8 +620,8 @@ if run_btn:
             use_container_width=True
         )
 
-else:
-    # Landing state
+elif st.session_state.scan_results is None:
+    # Landing state — no scan run yet
     st.markdown("""
     <div style='text-align:center; padding:3rem; color:#4a6070'>
         <div style='font-size:4rem'>🎯</div>
