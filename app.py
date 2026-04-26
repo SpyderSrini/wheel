@@ -9,6 +9,8 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # ── Page Config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -256,6 +258,9 @@ def fetch_stock_data(ticker, lot_size, max_capital, expiry_days=30):
         hist  = stock.history(period='1y')
         if len(hist) < 50:
             return None
+        # Store hist for charting later
+        clean_key = ticker.replace('.NS','')
+        st.session_state.hist_data[clean_key] = hist
         info          = stock.info
         current_price = hist['Close'].iloc[-1]
 
@@ -331,59 +336,100 @@ if 'scan_results' not in st.session_state:
     st.session_state.scan_results = None
 if 'scan_time' not in st.session_state:
     st.session_state.scan_time = None
+if 'hist_data' not in st.session_state:
+    st.session_state.hist_data = {}
 
 def toggle_chart(ticker):
     st.session_state.show_chart[ticker] = not st.session_state.show_chart.get(ticker, False)
 
-def render_tradingview_chart(ticker):
-    """Render an embedded TradingView chart for an NSE stock"""
-    tv_symbol = f"NSE:{ticker}"
-    unique_id = f"tv_{ticker.replace('-','_')}"
-    chart_html = f"""
-    <div style="border-radius:10px; overflow:hidden; margin-top:12px; background:#0d1a26;">
-      <div class="tradingview-widget-container">
-        <div id="{unique_id}" style="height:500px;"></div>
-        <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-        <script type="text/javascript">
-          new TradingView.widget({{
-            "width": "100%",
-            "height": 500,
-            "symbol": "{tv_symbol}",
-            "interval": "D",
-            "timezone": "Asia/Kolkata",
-            "theme": "dark",
-            "style": "1",
-            "locale": "en",
-            "toolbar_bg": "#0d1a26",
-            "enable_publishing": false,
-            "hide_side_toolbar": false,
-            "allow_symbol_change": false,
-            "withdateranges": true,
-            "range": "12M",
-            "studies": [
-              "MASimple@tv-basicstudies",
-              "MAExp@tv-basicstudies",
-              "RSI@tv-basicstudies",
-              "BB@tv-basicstudies"
-            ],
-            "studies_overrides": {{
-              "moving average.length": 50,
-              "moving average.plot.color": "#00d4aa",
-              "moving average exponential.length": 200,
-              "moving average exponential.plot.color": "#f5a623",
-              "bollinger bands.length": 20,
-              "bollinger bands.source": "close",
-              "bollinger bands.upper.color": "#4b9fff",
-              "bollinger bands.lower.color": "#4b9fff",
-              "rsi.length": 14
-            }},
-            "container_id": "{unique_id}"
-          }});
-        </script>
-      </div>
-    </div>
-    """
-    components.html(chart_html, height=515)
+def render_plotly_chart(ticker):
+    """Render a Plotly candlestick chart with MA50, MA200, BB, RSI"""
+    hist = st.session_state.hist_data.get(ticker)
+    if hist is None or len(hist) < 50:
+        st.warning(f"No chart data available for {ticker}")
+        return
+
+    df = hist.copy()
+    df.index = pd.to_datetime(df.index)
+
+    # ── Indicators ─────────────────────────────────────────────────────────
+    # Moving averages
+    df['MA50']  = df['Close'].rolling(50).mean()
+    df['MA200'] = df['Close'].rolling(200).mean()
+
+    # Bollinger Bands (20, 2)
+    df['BB_mid']   = df['Close'].rolling(20).mean()
+    df['BB_std']   = df['Close'].rolling(20).std()
+    df['BB_upper'] = df['BB_mid'] + 2 * df['BB_std']
+    df['BB_lower'] = df['BB_mid'] - 2 * df['BB_std']
+
+    # RSI (14)
+    delta     = df['Close'].diff()
+    gain      = delta.clip(lower=0).rolling(14).mean()
+    loss      = (-delta.clip(upper=0)).rolling(14).mean()
+    rs        = gain / loss.replace(0, 1e-10)
+    df['RSI'] = 100 - (100 / (1 + rs))
+
+    # ── Plot ───────────────────────────────────────────────────────────────
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.06,
+        row_heights=[0.70, 0.30],
+        subplot_titles=(f"NSE:{ticker} — Daily Chart", "RSI (14)")
+    )
+
+    # Candlesticks
+    fig.add_trace(go.Candlestick(
+        x=df.index, open=df['Open'], high=df['High'],
+        low=df['Low'], close=df['Close'],
+        name='Price',
+        increasing_line_color='#00d4aa',
+        decreasing_line_color='#ff4b4b'
+    ), row=1, col=1)
+
+    # Bollinger Bands
+    fig.add_trace(go.Scatter(x=df.index, y=df['BB_upper'], name='BB Upper',
+        line=dict(color='#4b9fff', width=1, dash='dot'), opacity=0.7), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['BB_lower'], name='BB Lower',
+        line=dict(color='#4b9fff', width=1, dash='dot'), opacity=0.7,
+        fill='tonexty', fillcolor='rgba(75,159,255,0.05)'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['BB_mid'], name='BB Mid',
+        line=dict(color='#4b9fff', width=1), opacity=0.5), row=1, col=1)
+
+    # MA50 and MA200
+    fig.add_trace(go.Scatter(x=df.index, y=df['MA50'], name='MA 50',
+        line=dict(color='#00d4aa', width=1.5)), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['MA200'], name='MA 200',
+        line=dict(color='#f5a623', width=1.5)), row=1, col=1)
+
+    # RSI
+    fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name='RSI',
+        line=dict(color='#c084fc', width=1.5)), row=2, col=1)
+    fig.add_hline(y=70, line=dict(color='#ff4b4b', dash='dot', width=1), row=2, col=1)
+    fig.add_hline(y=30, line=dict(color='#00d4aa', dash='dot', width=1), row=2, col=1)
+    fig.add_hrect(y0=30, y1=70, fillcolor='rgba(255,255,255,0.02)', row=2, col=1)
+
+    # Layout
+    fig.update_layout(
+        height=560,
+        paper_bgcolor='#0d1a26',
+        plot_bgcolor='#0d1a26',
+        font=dict(color='#a0b4c0', size=11),
+        legend=dict(
+            orientation='h', yanchor='bottom', y=1.02,
+            xanchor='right', x=1,
+            bgcolor='rgba(0,0,0,0)', font=dict(size=10)
+        ),
+        xaxis_rangeslider_visible=False,
+        margin=dict(l=10, r=10, t=40, b=10),
+        xaxis2=dict(showgrid=True, gridcolor='#1e3347'),
+        yaxis=dict(showgrid=True, gridcolor='#1e3347', side='right'),
+        yaxis2=dict(showgrid=True, gridcolor='#1e3347', side='right', range=[0,100]),
+    )
+    fig.update_xaxes(showgrid=True, gridcolor='#1e3347', zeroline=False)
+
+    st.plotly_chart(fig, use_container_width=True)
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -594,7 +640,7 @@ if run_btn:
 
             # Render TradingView chart if toggled on
             if chart_open:
-                render_tradingview_chart(r['ticker'])
+                render_plotly_chart(r['ticker'])
 
         # Tier 1
         st.markdown("## 🏆 Tier 1 — Best CSP Candidates")
@@ -732,7 +778,7 @@ else:
         )
 
         if chart_open:
-            render_tradingview_chart(r['ticker'])
+            render_plotly_chart(r['ticker'])
 
     st.markdown("## 🏆 Tier 1 — Best CSP Candidates")
     if tier1.empty:
