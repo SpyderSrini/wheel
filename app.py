@@ -141,23 +141,34 @@ st.markdown("""
         padding: 1rem;
         border-top: 1px solid #1e3347;
     }
-    div[data-testid="stSidebarContent"] {
+   div[data-testid="stSidebarContent"] {
         background: #0d1a26;
     }
-    div[data-testid="stSidebarContent"] label,
-    div[data-testid="stSidebarContent"] p,
-    div[data-testid="stSidebarContent"] span,
-    div[data-testid="stSidebarContent"] .stMarkdown p,
-    div[data-testid="stSidebarContent"] .stMarkdown span,
-    section[data-testid="stSidebar"] label {
+    /* Force ALL sidebar text to white */
+    section[data-testid="stSidebar"] *,
+    div[data-testid="stSidebarContent"] * {
         color: #e8f4f8 !important;
     }
+    /* Section headers in teal */
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3,
+    div[data-testid="stSidebarContent"] h1,
+    div[data-testid="stSidebarContent"] h2,
     div[data-testid="stSidebarContent"] h3 {
         color: #00d4aa !important;
     }
-    div[data-testid="stSidebarContent"] .stSlider [data-testid="stText"] {
+    /* Slider value in teal */
+    section[data-testid="stSidebar"] .stSlider p,
+    section[data-testid="stSidebar"] .stSlider span {
         color: #00d4aa !important;
         font-weight: 700;
+    }
+    /* Selectbox dropdown text */
+    section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] *,
+    section[data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"] * {
+        color: #e8f4f8 !important;
+        background-color: #1a2d3d !important;
     }
     .stButton > button {
         background: linear-gradient(135deg, #00d4aa, #0099cc);
