@@ -228,7 +228,7 @@ FO_STOCKS = {
     'GODREJCP.NS':   {'lot': 275,  'sector': 'FMCG'},
     'RELIANCE.NS':   {'lot': 500,  'sector': 'Energy'},
     'ONGC.NS':       {'lot': 2250, 'sector': 'Energy'},
-    'NTPC.NS':       {'lot': 1500 'sector': 'Power'},
+    'NTPC.NS':       {'lot': 1500, 'sector': 'Power'},
     'POWERGRID.NS':  {'lot': 1900, 'sector': 'Power'},
     'IOC.NS':        {'lot': 4875, 'sector': 'Energy'},
     'BPCL.NS':       {'lot': 1975, 'sector': 'Energy'},
