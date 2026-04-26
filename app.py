@@ -2,7 +2,9 @@
 NSE Wheel Strategy Screener — Streamlit Web App
 Built for: Srini | Cash-Secured Put (CSP) Strategy
 """
+
 import streamlit as st
+import streamlit.components.v1 as components
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -10,7 +12,7 @@ from datetime import datetime
 
 # ── Page Config ──────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="NSE Screener",
+    page_title="NSE Wheel Screener",
     page_icon="🇮🇳",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -322,6 +324,31 @@ def fetch_stock_data(ticker, lot_size, max_capital, expiry_days=30):
     except:
         return None
 
+# ── Session State for chart toggles ─────────────────────────────────────────
+if 'show_chart' not in st.session_state:
+    st.session_state.show_chart = {}
+
+def toggle_chart(ticker):
+    st.session_state.show_chart[ticker] = not st.session_state.show_chart.get(ticker, False)
+
+def render_tradingview_chart(ticker):
+    """Render an embedded TradingView chart for an NSE stock"""
+    tv_symbol = f"NSE:{ticker}"
+    chart_html = f"""
+    <div style="border-radius:10px; overflow:hidden; margin-top:12px;">
+    <div class="tradingview-widget-container" style="height:420px;">
+      <iframe
+        src="https://s.tradingview.com/widgetembed/?frameElementId=tv_{ticker}&symbol={tv_symbol}&interval=D&hidesidetoolbar=0&hidetoptoolbar=0&symboledit=0&saveimage=0&toolbarbg=0d1a26&studies=MASimple%40tv-basicstudies%7CEMA%40tv-basicstudies&theme=dark&style=1&timezone=Asia%2FKolkata&withdateranges=1&showpopupbutton=0&studies_overrides=%7B%7D&overrides=%7B%7D&enabled_features=%5B%5D&disabled_features=%5B%5D&locale=en&utm_source=&utm_medium=widget_new&utm_campaign=chart&utm_term={tv_symbol}"
+        style="width:100%; height:420px; border:none; border-radius:10px;"
+        allowtransparency="true"
+        scrolling="no"
+        allowfullscreen="">
+      </iframe>
+    </div>
+    </div>
+    """
+    components.html(chart_html, height=435)
+
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## ⚙️ Configuration")
@@ -375,8 +402,8 @@ with st.sidebar:
 # ── Main Header ──────────────────────────────────────────────────────────────
 st.markdown("""
 <div class='main-header'>
-    <h1>🇮🇳 NSE SCREENER</h1>
-    <p>CSP Candidates · F&O Stocks Only · Real-Time Data</p>
+    <h1>🇮🇳 NSE WHEEL SCREENER</h1>
+    <p>Cash-Secured Put (CSP) Candidates · F&O Stocks Only · Real-Time Data</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -469,6 +496,8 @@ if run_btn:
             cap_d30   = r['strike_d30'] * r['lot_size']
             cap_d25   = r['strike_d25'] * r['lot_size']
             cap_5pct  = r['strike_5pct'] * r['lot_size']
+            chart_open = st.session_state.show_chart.get(r['ticker'], False)
+            chart_label = "📉 Hide Chart" if chart_open else "📈 View Chart"
 
             st.markdown(f"""
             <div class='{card_class}'>
@@ -509,6 +538,18 @@ if run_btn:
                 </div>
             </div>
             """, unsafe_allow_html=True)
+
+            # Chart toggle button
+            st.button(
+                chart_label,
+                key=f"chart_btn_{r['ticker']}_{card_class}",
+                on_click=toggle_chart,
+                args=(r['ticker'],)
+            )
+
+            # Render TradingView chart if toggled on
+            if chart_open:
+                render_tradingview_chart(r['ticker'])
 
         # Tier 1
         st.markdown("## 🏆 Tier 1 — Best CSP Candidates")
