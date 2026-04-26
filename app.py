@@ -328,14 +328,15 @@ with st.sidebar:
     st.markdown("## ⚙️ Configuration")
     st.markdown("---")
 
-    max_capital = st.slider(
+  max_capital = st.slider(
         "💰 Max Capital per Lot (₹)",
         min_value=50_000,
         max_value=2_000_000,
-        value=1500_000,
+        value=150_000,
         step=10_000,
         format="₹%d"
     )
+    st.markdown(f"<p style='color:#00d4aa; font-weight:700; font-size:0.9rem; margin-top:-10px'>Selected: ₹{max_capital:,}</p>", unsafe_allow_html=True)
 
     expiry_days = st.selectbox(
         "📅 Expiry Target",
@@ -351,7 +352,8 @@ with st.sidebar:
         placeholder="All sectors"
     )
 
-    min_score = st.slider("🎯 Minimum Wheel Score", 0, 100, 40, 5)
+   min_score = st.slider("🎯 Minimum Wheel Score", 0, 100, 40, 5)
+    st.markdown(f"<p style='color:#00d4aa; font-weight:700; font-size:0.9rem; margin-top:-10px'>Selected: {min_score}/100</p>", unsafe_allow_html=True)
 
     st.markdown("---")
     run_btn = st.button("🚀 Run Screener", use_container_width=True)
