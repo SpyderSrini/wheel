@@ -336,7 +336,7 @@ max_capital = st.slider(
         step=10_000,
         format="₹%d"
     )
-    st.markdown(f"<p style='color:#00d4aa; font-weight:700; font-size:0.9rem; margin-top:-10px'>Selected: ₹{max_capital:,}</p>", unsafe_allow_html=True)
+     st.markdown(f"<p style='color:#00d4aa; font-weight:700; font-size:0.9rem; margin-top:-10px'>Selected: ₹{max_capital:,}</p>", unsafe_allow_html=True)
 
     expiry_days = st.selectbox(
         "📅 Expiry Target",
