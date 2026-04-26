@@ -338,16 +338,16 @@ def toggle_chart(ticker):
 def render_tradingview_chart(ticker):
     """Render an embedded TradingView chart for an NSE stock"""
     tv_symbol = f"NSE:{ticker}"
-    unique_id = f"tv_{ticker}_{id(ticker)}"
+    unique_id = f"tv_{ticker.replace('-','_')}"
     chart_html = f"""
     <div style="border-radius:10px; overflow:hidden; margin-top:12px; background:#0d1a26;">
       <div class="tradingview-widget-container">
-        <div id="{unique_id}"></div>
+        <div id="{unique_id}" style="height:500px;"></div>
         <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
         <script type="text/javascript">
           new TradingView.widget({{
-            "autosize": true,
-            "height": 420,
+            "width": "100%",
+            "height": 500,
             "symbol": "{tv_symbol}",
             "interval": "D",
             "timezone": "Asia/Kolkata",
@@ -358,13 +358,24 @@ def render_tradingview_chart(ticker):
             "enable_publishing": false,
             "hide_side_toolbar": false,
             "allow_symbol_change": false,
+            "withdateranges": true,
+            "range": "12M",
             "studies": [
               "MASimple@tv-basicstudies",
-              "MAExp@tv-basicstudies"
+              "MAExp@tv-basicstudies",
+              "RSI@tv-basicstudies",
+              "BB@tv-basicstudies"
             ],
             "studies_overrides": {{
               "moving average.length": 50,
-              "moving average exponential.length": 200
+              "moving average.plot.color": "#00d4aa",
+              "moving average exponential.length": 200,
+              "moving average exponential.plot.color": "#f5a623",
+              "bollinger bands.length": 20,
+              "bollinger bands.source": "close",
+              "bollinger bands.upper.color": "#4b9fff",
+              "bollinger bands.lower.color": "#4b9fff",
+              "rsi.length": 14
             }},
             "container_id": "{unique_id}"
           }});
@@ -372,7 +383,7 @@ def render_tradingview_chart(ticker):
       </div>
     </div>
     """
-    components.html(chart_html, height=440)
+    components.html(chart_html, height=515)
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -461,9 +472,9 @@ with st.expander("ℹ️ How this screener works"):
 
 # ── Results ──────────────────────────────────────────────────────────────────
 if run_btn:
-    # Clear previous results and chart states on fresh scan
-    st.session_state.show_chart = {}
+    # Clear previous results on fresh scan
     st.session_state.scan_results = None
+    st.session_state.show_chart = {}  # will be set to True per ticker after scan
 
     filtered_stocks = {
         k: v for k, v in FO_STOCKS.items()
@@ -486,6 +497,9 @@ if run_btn:
     progress_bar.empty()
     st.session_state.scan_results = results
     st.session_state.scan_time = datetime.now().strftime('%d %b %Y, %I:%M %p')
+    # Open all charts by default
+    for r in results:
+        st.session_state.show_chart[r['ticker']] = True
 
     if not results:
         st.warning("No stocks matched your criteria. Try lowering the minimum score or increasing capital limit.")
@@ -630,6 +644,127 @@ elif st.session_state.scan_results is None:
         <p style='font-size:0.85rem'>Scans ~55 F&O stocks · Real-time data · 3 strike suggestions per stock</p>
     </div>
     """, unsafe_allow_html=True)
+
+else:
+    # Re-render results from session state (triggered by chart toggle button clicks)
+    results = st.session_state.scan_results
+    df = pd.DataFrame(results)
+
+    tier1 = df[
+        (df['capital_required'] <= max_capital) &
+        (df['wheel_score'] >= 55) &
+        (df['above_200dma'] == True)
+    ].sort_values('wheel_score', ascending=False)
+
+    tier2 = df[
+        ~df['ticker'].isin(tier1['ticker'])
+    ].sort_values('wheel_score', ascending=False).head(10)
+
+    st.markdown(f"### 📊 Scan Results — {st.session_state.get('scan_time', '')}")
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        st.markdown(f"<div class='metric-box'><div class='label'>Stocks Scanned</div><div class='value'>{len(results)}</div></div>", unsafe_allow_html=True)
+    with m2:
+        st.markdown(f"<div class='metric-box'><div class='label'>Tier 1 (Best)</div><div class='value'>{len(tier1)}</div></div>", unsafe_allow_html=True)
+    with m3:
+        st.markdown(f"<div class='metric-box'><div class='label'>Tier 2 (Watch)</div><div class='value'>{len(tier2)}</div></div>", unsafe_allow_html=True)
+    with m4:
+        avg_score = round(df['wheel_score'].mean())
+        st.markdown(f"<div class='metric-box'><div class='label'>Avg Score</div><div class='value'>{avg_score}</div></div>", unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    def render_card(r, card_class):
+        trend_tag = "<span class='tag tag-green'>📈 Above 200DMA</span>" if r['above_200dma'] else                     "<span class='tag tag-yellow'>〰️ Above 50DMA</span>" if r['above_50dma'] else                     "<span class='tag tag-red'>📉 Below MAs</span>"
+        div_tag   = f"<span class='tag tag-blue'>💰 Div {r['dividend_yield']:.1f}%</span>" if r['dividend_yield'] > 0 else ""
+        score_cls = "score-high" if r['wheel_score'] >= 60 else "score-mid"
+        cap_d30   = r['strike_d30'] * r['lot_size']
+        cap_d25   = r['strike_d25'] * r['lot_size']
+        cap_5pct  = r['strike_5pct'] * r['lot_size']
+        chart_open  = st.session_state.show_chart.get(r['ticker'], True)
+        chart_label = "📉 Hide Chart" if chart_open else "📈 View Chart"
+
+        st.markdown(f"""
+        <div class='{card_class}'>
+            <div style='display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px'>
+                <div>
+                    <span class='ticker-name'>{r['ticker']}</span>
+                    <span style='color:#6b8fa8; margin-left:8px; font-size:0.85rem'>{r['name']}</span>
+                </div>
+                <span class='score-badge {score_cls}'>Score {r['wheel_score']}/100</span>
+            </div>
+            <div style='margin-top:8px; display:flex; gap:12px; flex-wrap:wrap; font-size:0.85rem; color:#a0b4c0'>
+                <span>🏭 {r['sector']}</span>
+                <span>📦 Lot: {r['lot_size']:,}</span>
+                <span>💵 CMP: <strong style='color:#fff'>₹{r['current_price']:,.2f}</strong></span>
+                <span>📉 From 52W High: <strong style='color:#f5a623'>-{r['pct_from_high']:.1f}%</strong></span>
+                <span>🌡️ HV30: {r['hv_30']:.1f}%</span>
+            </div>
+            <div style='margin-top:6px'>{trend_tag}{div_tag}</div>
+            <div class='strike-box'>
+                <div style='color:#6b8fa8; font-size:0.72rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px'>
+                    Strike Suggestions · {expiry_days}-day expiry
+                </div>
+                <div class='strike-row'>
+                    <span class='strike-label'>🟢 Delta ~0.30 (Aggressive)</span>
+                    <span class='strike-value'>₹{r['strike_d30']:,.0f}</span>
+                    <span class='strike-capital'>Capital: ₹{cap_d30/1000:.0f}K</span>
+                </div>
+                <div class='strike-row'>
+                    <span class='strike-label'>🟡 Delta ~0.25 (Moderate)</span>
+                    <span class='strike-value'>₹{r['strike_d25']:,.0f}</span>
+                    <span class='strike-capital'>Capital: ₹{cap_d25/1000:.0f}K</span>
+                </div>
+                <div class='strike-row'>
+                    <span class='strike-label'>🔵 5% OTM (Conservative)</span>
+                    <span class='strike-value'>₹{r['strike_5pct']:,.0f}</span>
+                    <span class='strike-capital'>Capital: ₹{cap_5pct/1000:.0f}K</span>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.button(
+            chart_label,
+            key=f"chart_btn_{r['ticker']}_{card_class}",
+            on_click=toggle_chart,
+            args=(r['ticker'],)
+        )
+
+        if chart_open:
+            render_tradingview_chart(r['ticker'])
+
+    st.markdown("## 🏆 Tier 1 — Best CSP Candidates")
+    if tier1.empty:
+        st.info("No Tier 1 stocks with current settings. Try increasing capital limit or lowering score threshold.")
+    for _, row in tier1.iterrows():
+        render_card(row.to_dict(), 'tier1-card')
+
+    st.markdown("---")
+    st.markdown("## 👀 Tier 2 — Watchlist")
+    for _, row in tier2.iterrows():
+        render_card(row.to_dict(), 'tier2-card')
+
+    st.markdown("---")
+    st.markdown("## 📊 Sector Summary")
+    sector_df = df.groupby('sector').agg(
+        Stocks=('ticker', 'count'),
+        Avg_Score=('wheel_score', 'mean'),
+        Avg_HV30=('hv_30', 'mean'),
+    ).reset_index().sort_values('Avg_Score', ascending=False)
+    sector_df['Avg_Score'] = sector_df['Avg_Score'].round(0).astype(int)
+    sector_df['Avg_HV30']  = sector_df['Avg_HV30'].round(1)
+    st.dataframe(sector_df, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    csv = df.sort_values('wheel_score', ascending=False).to_csv(index=False)
+    st.download_button(
+        label="📥 Download Full Results (CSV)",
+        data=csv,
+        file_name=f"nse_wheel_screener_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+        mime="text/csv",
+        use_container_width=True
+    )
 
 # ── Disclaimer ───────────────────────────────────────────────────────────────
 st.markdown("""
