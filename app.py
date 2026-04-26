@@ -144,6 +144,21 @@ st.markdown("""
     div[data-testid="stSidebarContent"] {
         background: #0d1a26;
     }
+    div[data-testid="stSidebarContent"] label,
+    div[data-testid="stSidebarContent"] p,
+    div[data-testid="stSidebarContent"] span,
+    div[data-testid="stSidebarContent"] .stMarkdown p,
+    div[data-testid="stSidebarContent"] .stMarkdown span,
+    section[data-testid="stSidebar"] label {
+        color: #e8f4f8 !important;
+    }
+    div[data-testid="stSidebarContent"] h3 {
+        color: #00d4aa !important;
+    }
+    div[data-testid="stSidebarContent"] .stSlider [data-testid="stText"] {
+        color: #00d4aa !important;
+        font-weight: 700;
+    }
     .stButton > button {
         background: linear-gradient(135deg, #00d4aa, #0099cc);
         color: #000;
