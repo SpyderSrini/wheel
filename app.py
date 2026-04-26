@@ -338,15 +338,15 @@ with st.sidebar:
         Start trading options with trusted brokers:
         </p>
         <br>
-        <a href='https://zerodha.com' target='_blank' style='color:#00d4aa; text-decoration:none; font-weight:600'>
+        <a href='https://zerodha.com/open-account?c=SS1428' target='_blank' style='color:#00d4aa; text-decoration:none; font-weight:600'>
         🟢 Zerodha — Open Account
         </a><br><br>
-        <a href='https://groww.in' target='_blank' style='color:#00d4aa; text-decoration:none; font-weight:600'>
-        🟢 Groww — Open Account
-        </a><br><br>
-        <a href='https://www.angelone.in' target='_blank' style='color:#00d4aa; text-decoration:none; font-weight:600'>
-        🟢 Angel One — Open Account
-        </a>
+       # <a href='https://groww.in' target='_blank' style='color:#00d4aa; text-decoration:none; font-weight:600'>
+        #🟢 Groww — Open Account
+       # </a><br><br>
+        #<a href='https://www.angelone.in' target='_blank' style='color:#00d4aa; text-decoration:none; font-weight:600'>
+        #🟢 Angel One — Open Account
+       # </a>
     </div>
     """, unsafe_allow_html=True)
 
