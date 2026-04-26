@@ -2,8 +2,11 @@
 NSE Wheel Strategy Screener — Streamlit Web App
 Built for: Srini | Cash-Secured Put (CSP) Strategy
 """
+<head>
 <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1588781946912553"
      crossorigin="anonymous"></script>
+
+</head>
 import streamlit as st
 import yfinance as yf
 import pandas as pd
