@@ -375,8 +375,8 @@ with st.sidebar:
 # ── Main Header ──────────────────────────────────────────────────────────────
 st.markdown("""
 <div class='main-header'>
-    <h1>🇮🇳 NSE WHEEL SCREENER</h1>
-    <p>Cash-Secured Put (CSP) Candidates · F&O Stocks Only · Real-Time Data</p>
+    <h1>🇮🇳 NSE SCREENER</h1>
+    <p>CSP Candidates · F&O Stocks Only · Real-Time Data</p>
 </div>
 """, unsafe_allow_html=True)
 
