@@ -10,7 +10,7 @@ from datetime import datetime
 
 # ── Page Config ──────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="NSE Wheel Screener",
+    page_title="NSE Screener",
     page_icon="🇮🇳",
     layout="wide",
     initial_sidebar_state="expanded"
