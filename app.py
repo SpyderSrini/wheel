@@ -11,6 +11,8 @@ import numpy as np
 from datetime import datetime
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import anthropic
+import json
 
 # ── Page Config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -322,12 +324,70 @@ def fetch_us_stock_data(ticker, max_capital_usd, expiry_days=30):
     except: return None
 
 # ── Session State ─────────────────────────────────────────────────────────────
-for key, val in {'show_chart': {}, 'hist_data': {}, 'nse_results': None, 'nse_time': None, 'hk_results': None, 'hk_time': None, 'us_results': None, 'us_time': None}.items():
+for key, val in {'show_chart': {}, 'hist_data': {}, 'nse_results': None, 'nse_time': None, 'hk_results': None, 'hk_time': None, 'us_results': None, 'us_time': None, 'ai_analysis': {}}.items():
     if key not in st.session_state:
         st.session_state[key] = val
 
 def toggle_chart(key):
     st.session_state.show_chart[key] = not st.session_state.show_chart.get(key, True)
+
+def toggle_analysis(key):
+    st.session_state.ai_analysis[key] = st.session_state.ai_analysis.get(key, {})
+    st.session_state.ai_analysis[key]['open'] = not st.session_state.ai_analysis[key].get('open', False)
+
+def get_ai_analysis(ticker, name, exchange, current_price, sector, hv30, pct_from_high, div_yield, wheel_score):
+    """Call Claude API with web search to get stock analysis"""
+    try:
+        client = anthropic.Anthropic()
+        currency = 'HKD' if exchange == 'HKEX' else ('USD' if exchange in ['NASDAQ','NYSE'] else 'INR')
+        prompt = f"""You are an expert options trader and equity analyst specialising in the wheel strategy (cash-secured puts).
+
+Analyse {ticker} ({name}) listed on {exchange} for a wheel/CSP strategy.
+
+Current data:
+- Price: {currency} {current_price:,.2f}
+- Sector: {sector}
+- 30-day Historical Volatility: {hv30:.1f}%
+- Distance from 52W High: -{pct_from_high:.1f}%
+- Dividend Yield: {div_yield:.1f}%
+- Wheel Score: {wheel_score}/100
+
+Use web search to find the latest news, analyst targets, and market sentiment.
+
+Respond ONLY in this exact JSON format with no markdown or preamble:
+{{
+  "pros": ["point 1", "point 2", "point 3", "point 4"],
+  "cons": ["point 1", "point 2", "point 3"],
+  "market_analysis": "2-3 sentence summary of current market position and trend",
+  "analyst_target": "price target or range with source",
+  "csp_recommendation": "specific recommendation for selling CSP — which strike, expiry, and why",
+  "risk_level": "Low / Medium / High",
+  "verdict": "one sentence verdict for wheel strategy suitability"
+}}"""
+
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1000,
+            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        # Extract text from response
+        result_text = ""
+        for block in response.content:
+            if hasattr(block, 'text'):
+                result_text += block.text
+
+        # Parse JSON
+        result_text = result_text.strip()
+        if result_text.startswith("```"):
+            result_text = result_text.split("```")[1]
+            if result_text.startswith("json"):
+                result_text = result_text[4:]
+        return json.loads(result_text.strip())
+
+    except Exception as e:
+        return {"error": str(e)}
 
 # ── Chart Renderer ────────────────────────────────────────────────────────────
 def render_chart(chart_key, exchange='NSE'):
@@ -427,10 +487,82 @@ def render_card(r, chart_key, exchange='NSE'):
         </div>
     </div>
     """, unsafe_allow_html=True)
-    st.button(chart_label, key=f"btn_{chart_key}_{r.get('_tier',0)}",
-              on_click=toggle_chart, args=(chart_key,))
+    col_chart, col_ai = st.columns([1, 1])
+    with col_chart:
+        st.button(chart_label, key=f"btn_{chart_key}_{r.get('_tier',0)}",
+                  on_click=toggle_chart, args=(chart_key,))
+    with col_ai:
+        # Only show AI Analysis button for Tier 1
+        if r.get('_tier') == 1:
+            ai_state    = st.session_state.ai_analysis.get(chart_key, {})
+            ai_open     = ai_state.get('open', False)
+            ai_label    = "🤖 Hide Analysis" if ai_open else "🤖 AI Analysis"
+            st.button(ai_label, key=f"ai_btn_{chart_key}_{r.get('_tier',0)}",
+                      on_click=toggle_analysis, args=(chart_key,))
+
     if chart_open:
         render_chart(chart_key, exchange)
+
+    # AI Analysis panel — Tier 1 only
+    if r.get('_tier') == 1:
+        ai_state = st.session_state.ai_analysis.get(chart_key, {})
+        if ai_state.get('open', False):
+            cached = ai_state.get('data')
+            if not cached:
+                with st.spinner(f"🤖 Analysing {r['ticker']} with live web data..."):
+                    cached = get_ai_analysis(
+                        r['ticker'], r['name'], exchange,
+                        r['current_price'], r['sector'],
+                        r['hv_30'], r['pct_from_high'],
+                        r['dividend_yield'], r['wheel_score']
+                    )
+                    st.session_state.ai_analysis[chart_key]['data'] = cached
+
+            if 'error' in cached:
+                st.error(f"Analysis error: {cached['error']}")
+            else:
+                risk_color = {'Low': '#00d4aa', 'Medium': '#f5a623', 'High': '#ff4b4b'}.get(cached.get('risk_level','Medium'), '#f5a623')
+                st.markdown(f"""
+                <div style='background:#0a1e30; border:1px solid #1e3347; border-radius:10px; padding:1.2rem 1.5rem; margin-top:0.5rem;'>
+                    <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:8px'>
+                        <span style='font-family:Space Mono,monospace; color:#00d4aa; font-size:0.95rem; font-weight:700'>
+                            🤖 AI Analysis — {r['ticker']}
+                        </span>
+                        <span style='background:{risk_color}22; color:{risk_color}; border:1px solid {risk_color}44;
+                              padding:2px 12px; border-radius:20px; font-size:0.78rem; font-weight:600'>
+                            Risk: {cached.get('risk_level','N/A')}
+                        </span>
+                    </div>
+                    <div style='display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1rem'>
+                        <div style='background:#0d2318; border:1px solid #00d4aa33; border-radius:8px; padding:0.8rem'>
+                            <div style='color:#00d4aa; font-size:0.72rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px'>✅ Pros</div>
+                            {''.join(f"<div style='color:#c8dce8; font-size:0.83rem; padding:3px 0; border-bottom:1px solid #1e3347'>• {p}</div>" for p in cached.get('pros', []))}
+                        </div>
+                        <div style='background:#1e1218; border:1px solid #ff4b4b33; border-radius:8px; padding:0.8rem'>
+                            <div style='color:#ff4b4b; font-size:0.72rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px'>⚠️ Cons</div>
+                            {''.join(f"<div style='color:#c8dce8; font-size:0.83rem; padding:3px 0; border-bottom:1px solid #1e3347'>• {c}</div>" for c in cached.get('cons', []))}
+                        </div>
+                    </div>
+                    <div style='background:#111e2d; border:1px solid #1e3347; border-radius:8px; padding:0.8rem; margin-bottom:0.8rem'>
+                        <div style='color:#6b8fa8; font-size:0.72rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px'>📊 Market Analysis</div>
+                        <div style='color:#c8dce8; font-size:0.85rem; line-height:1.6'>{cached.get('market_analysis','')}</div>
+                    </div>
+                    <div style='display:grid; grid-template-columns:1fr 1fr; gap:0.8rem; margin-bottom:0.8rem'>
+                        <div style='background:#111e2d; border:1px solid #1e3347; border-radius:8px; padding:0.8rem'>
+                            <div style='color:#6b8fa8; font-size:0.72rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px'>🎯 Analyst Target</div>
+                            <div style='color:#f5a623; font-size:0.88rem; font-weight:600'>{cached.get('analyst_target','N/A')}</div>
+                        </div>
+                        <div style='background:#111e2d; border:1px solid #1e3347; border-radius:8px; padding:0.8rem'>
+                            <div style='color:#6b8fa8; font-size:0.72rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px'>💡 CSP Recommendation</div>
+                            <div style='color:#c8dce8; font-size:0.83rem'>{cached.get('csp_recommendation','N/A')}</div>
+                        </div>
+                    </div>
+                    <div style='background:#0d2318; border:1px solid #00d4aa33; border-radius:8px; padding:0.7rem 1rem'>
+                        <span style='color:#6b8fa8; font-size:0.72rem; text-transform:uppercase; letter-spacing:1px'>⚖️ Verdict: </span>
+                        <span style='color:#00d4aa; font-size:0.85rem; font-weight:600'>{cached.get('verdict','')}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
 # ── App Header ────────────────────────────────────────────────────────────────
 st.markdown("""
