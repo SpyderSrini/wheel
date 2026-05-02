@@ -11,7 +11,6 @@ import numpy as np
 from datetime import datetime
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import google.generativeai as genai
 import json
 
 # ── Page Config ───────────────────────────────────────────────────────────────
@@ -365,80 +364,156 @@ def toggle_analysis(key):
     st.session_state.ai_analysis[key]['open'] = not st.session_state.ai_analysis[key].get('open', False)
 
 def get_ai_analysis(ticker, name, exchange, current_price, sector, hv30, pct_from_high, div_yield, wheel_score):
-    """Call Groq API (free) to get wheel strategy analysis"""
+    """Rule-based wheel strategy analysis — no external API needed"""
     try:
-        api_key = st.secrets.get("GEMINI_API_KEY", "")
-        if not api_key:
-            return {"error": "Gemini API key not set. Go to Streamlit Cloud → Settings → Secrets and add: GEMINI_API_KEY = \"your-key-here\" (free at aistudio.google.com)"}
-
-        # Fetch additional yfinance data to enrich the prompt
+        # Fetch enriched yfinance data
         try:
-            tkr  = yf.Ticker(ticker if exchange != 'NSE' else ticker + '.NS' if '.' not in ticker else ticker)
-            info = tkr.info
-            analyst_low    = info.get('targetLowPrice', 'N/A')
-            analyst_high   = info.get('targetHighPrice', 'N/A')
-            analyst_mean   = info.get('targetMeanPrice', 'N/A')
-            analyst_rec    = info.get('recommendationKey', 'N/A').upper()
-            trailing_pe    = info.get('trailingPE', 'N/A')
-            forward_pe     = info.get('forwardPE', 'N/A')
-            revenue_growth = round((info.get('revenueGrowth') or 0) * 100, 1)
-            profit_margins = round((info.get('profitMargins') or 0) * 100, 1)
-            debt_to_equity = info.get('debtToEquity', 'N/A')
-            beta           = info.get('beta', 'N/A')
+            ns_suffix = '.NS' if exchange == 'NSE' and '.' not in ticker else ''
+            hk_suffix = '.HK' if exchange == 'HKEX' and '.' not in ticker else ''
+            yt = yf.Ticker(ticker + ns_suffix + hk_suffix)
+            info = yt.info
+            analyst_mean   = info.get('targetMeanPrice')
+            analyst_low    = info.get('targetLowPrice')
+            analyst_high   = info.get('targetHighPrice')
+            analyst_rec    = (info.get('recommendationKey') or 'N/A').upper()
+            trailing_pe    = info.get('trailingPE')
+            forward_pe     = info.get('forwardPE')
+            revenue_growth = (info.get('revenueGrowth') or 0) * 100
+            profit_margins = (info.get('profitMargins') or 0) * 100
+            debt_to_equity = info.get('debtToEquity')
+            beta           = info.get('beta')
+            fifty_day_avg  = info.get('fiftyDayAverage')
+            two_hundred_avg= info.get('twoHundredDayAverage')
         except:
-            analyst_low = analyst_high = analyst_mean = analyst_rec = 'N/A'
-            trailing_pe = forward_pe = revenue_growth = profit_margins = debt_to_equity = beta = 'N/A'
+            analyst_mean = analyst_low = analyst_high = None
+            analyst_rec = 'N/A'
+            trailing_pe = forward_pe = revenue_growth = profit_margins = None
+            debt_to_equity = beta = fifty_day_avg = two_hundred_avg = None
 
-        currency = 'HKD' if exchange == 'HKEX' else ('USD' if exchange in ['NASDAQ','NYSE','NASDAQ/NYSE'] else 'INR')
+        currency = 'HKD' if exchange == 'HKEX' else ('$' if exchange in ['NASDAQ','NYSE','NASDAQ/NYSE'] else '₹')
 
-        prompt = f"""You are an expert options trader and equity analyst specialising in the wheel strategy (cash-secured puts / covered calls).
+        # ── PROS ──────────────────────────────────────────────────────────
+        pros = []
+        if wheel_score >= 70:
+            pros.append(f"Strong wheel score of {wheel_score}/100 — passes all key criteria for CSP strategy")
+        elif wheel_score >= 55:
+            pros.append(f"Solid wheel score of {wheel_score}/100 — meets core CSP criteria")
 
-Analyse {ticker} ({name}) on {exchange} for suitability as a wheel strategy stock.
+        if 20 <= hv30 <= 40:
+            pros.append(f"HV30 of {hv30:.1f}% is in the sweet spot — generates good premium without excessive risk")
+        elif hv30 > 40:
+            pros.append(f"Elevated HV30 of {hv30:.1f}% means rich option premiums for put sellers")
 
-LIVE MARKET DATA:
-- CMP: {currency} {current_price:,.2f}
-- Sector: {sector}
-- HV30 (volatility): {hv30:.1f}%
-- Distance from 52W High: -{pct_from_high:.1f}%
-- Dividend Yield: {div_yield:.1f}%
-- Wheel Score: {wheel_score}/100
-- Beta: {beta}
-- Trailing PE: {trailing_pe} | Forward PE: {forward_pe}
-- Revenue Growth: {revenue_growth}% | Profit Margin: {profit_margins}%
-- Debt/Equity: {debt_to_equity}
-- Analyst Consensus: {analyst_rec}
-- Analyst Targets: Low {currency}{analyst_low} | Mean {currency}{analyst_mean} | High {currency}{analyst_high}
+        if div_yield >= 3:
+            pros.append(f"Attractive dividend yield of {div_yield:.1f}% — bonus income if assigned and held")
+        elif div_yield >= 1:
+            pros.append(f"Dividend yield of {div_yield:.1f}% provides additional return if assigned")
 
-Based on this data, provide a thorough wheel strategy analysis.
+        if 10 <= pct_from_high <= 25:
+            pros.append(f"Healthy pullback of {pct_from_high:.1f}% from 52W high — ideal CSP entry zone")
+        elif 25 < pct_from_high <= 40:
+            pros.append(f"Significant pullback of {pct_from_high:.1f}% from 52W high — potential mean reversion play")
 
-Respond ONLY in this exact JSON format — no markdown, no preamble, no extra text:
-{{
-  "pros": ["specific point 1", "specific point 2", "specific point 3", "specific point 4"],
-  "cons": ["specific risk 1", "specific risk 2", "specific risk 3"],
-  "market_analysis": "2-3 sentences on current price trend, momentum, and key technical levels relevant to selling puts",
-  "analyst_target": "analyst consensus target with context e.g. Mean target {currency}XX — X% upside from CMP",
-  "csp_recommendation": "specific CSP trade: suggested strike price, expiry duration, and reasoning based on support levels and IV",
-  "risk_level": "Low",
-  "verdict": "one clear sentence on whether this stock is suitable for wheel strategy right now"
-}}
+        if analyst_mean and analyst_mean > current_price:
+            upside = ((analyst_mean - current_price) / current_price) * 100
+            pros.append(f"Analyst mean target {currency}{analyst_mean:,.1f} implies {upside:.1f}% upside — stock fundamentally undervalued")
 
-Risk level must be exactly one of: Low / Medium / High"""
+        if profit_margins and profit_margins > 15:
+            pros.append(f"Strong profit margin of {profit_margins:.1f}% — quality business with pricing power")
 
-        genai.configure(api_key=api_key)
-        model    = genai.GenerativeModel("gemini-2.0-flash")
-        response = model.generate_content(prompt)
-        result_text = response.text.strip()
-        # Strip markdown fences if present
-        if "```" in result_text:
-            result_text = result_text.split("```")[1]
-            if result_text.startswith("json"):
-                result_text = result_text[4:]
-        # Find JSON object
-        start = result_text.find("{")
-        end   = result_text.rfind("}") + 1
-        if start != -1 and end > start:
-            result_text = result_text[start:end]
-        return json.loads(result_text.strip())
+        if forward_pe and trailing_pe and forward_pe < trailing_pe:
+            pros.append(f"Forward PE ({forward_pe:.1f}) below trailing PE ({trailing_pe:.1f}) — earnings growth expected")
+
+        if beta and beta < 1.2:
+            pros.append(f"Beta of {beta:.2f} indicates relatively low market sensitivity — stable for wheel strategy")
+
+        pros = pros[:4]  # Cap at 4
+
+        # ── CONS ──────────────────────────────────────────────────────────
+        cons = []
+        if hv30 > 50:
+            cons.append(f"Very high HV30 of {hv30:.1f}% — large price swings increase assignment risk on puts")
+        if pct_from_high > 35:
+            cons.append(f"Stock is {pct_from_high:.1f}% below 52W high — may indicate a longer downtrend, use wider strikes")
+        if debt_to_equity and debt_to_equity > 100:
+            cons.append(f"High debt/equity ratio of {debt_to_equity:.0f} — leveraged balance sheet adds fundamental risk")
+        if div_yield == 0:
+            cons.append("No dividend — if assigned, holding the stock generates no passive income while waiting to sell calls")
+        if beta and beta > 1.5:
+            cons.append(f"High beta of {beta:.2f} — stock moves sharply with market, wider stops needed on puts")
+        if revenue_growth and revenue_growth < 0:
+            cons.append(f"Negative revenue growth of {revenue_growth:.1f}% — business headwinds may pressure the stock further")
+        if analyst_rec in ['SELL','STRONG_SELL']:
+            cons.append(f"Analyst consensus is {analyst_rec} — majority recommending exit, adds downside risk")
+        if not cons:
+            cons.append("Monitor broader market conditions — even quality stocks can be pulled down in risk-off environments")
+        cons = cons[:3]  # Cap at 3
+
+        # ── MARKET ANALYSIS ───────────────────────────────────────────────
+        trend = "above" if pct_from_high < 15 else "below"
+        ma_note = ""
+        if fifty_day_avg and two_hundred_avg:
+            if current_price > fifty_day_avg and current_price > two_hundred_avg:
+                ma_note = "Trading above both 50 and 200 DMA — trend is bullish and supportive for put selling. "
+            elif current_price > two_hundred_avg:
+                ma_note = "Above 200 DMA but below 50 DMA — mild short-term weakness within longer uptrend. "
+            else:
+                ma_note = "Below both key moving averages — be selective with strikes and use wider OTM buffer. "
+
+        vol_note = f"HV30 at {hv30:.1f}% suggests {'elevated' if hv30 > 35 else 'moderate'} option premiums are available. "
+        pullback_note = f"At {pct_from_high:.1f}% below the 52W high, the stock is in a {'healthy consolidation' if pct_from_high < 20 else 'deeper correction'} phase — {'good' if pct_from_high < 30 else 'cautious'} zone for cash-secured puts."
+        market_analysis = ma_note + vol_note + pullback_note
+
+        # ── ANALYST TARGET ────────────────────────────────────────────────
+        if analyst_mean:
+            upside = ((analyst_mean - current_price) / current_price) * 100
+            analyst_target = (f"Analyst mean target: {currency}{analyst_mean:,.1f} ({upside:+.1f}% from CMP) | "
+                              f"Range: {currency}{analyst_low:,.1f} – {currency}{analyst_high:,.1f} | "
+                              f"Consensus: {analyst_rec}")
+        else:
+            analyst_target = "Analyst target data not available via yfinance for this stock"
+
+        # ── CSP RECOMMENDATION ────────────────────────────────────────────
+        sigma  = hv30 / 100
+        sqrtT  = np.sqrt(30 / 365)
+        strike_d25 = round(current_price * np.exp(-0.674 * sigma * sqrtT), 1)
+        if exchange == 'NSE':
+            strike_d25 = round(strike_d25 / 5) * 5
+        else:
+            strike_d25 = round(strike_d25 * 2) / 2
+
+        expiry_note = "monthly expiry (last Thursday)" if exchange == 'NSE' else "30-day expiry"
+        csp_recommendation = (f"Sell {currency}{strike_d25:,.1f} put (~delta 0.25) at {expiry_note}. "
+                               f"This gives ~5–8% OTM buffer based on current IV. "
+                               f"Target 50% profit exit. Only proceed if comfortable owning {ticker} at this price.")
+
+        # ── RISK LEVEL ────────────────────────────────────────────────────
+        risk_score = 0
+        if hv30 > 45: risk_score += 2
+        elif hv30 > 30: risk_score += 1
+        if pct_from_high > 35: risk_score += 2
+        elif pct_from_high > 20: risk_score += 1
+        if debt_to_equity and debt_to_equity > 150: risk_score += 1
+        if beta and beta > 1.5: risk_score += 1
+        risk_level = "High" if risk_score >= 4 else "Medium" if risk_score >= 2 else "Low"
+
+        # ── VERDICT ───────────────────────────────────────────────────────
+        if wheel_score >= 65 and risk_level == "Low":
+            verdict = f"{ticker} is a strong wheel candidate — good premium, solid trend, manageable risk profile."
+        elif wheel_score >= 55 and risk_level != "High":
+            verdict = f"{ticker} is a reasonable wheel candidate — monitor support levels before selling puts."
+        else:
+            verdict = f"{ticker} requires caution — use conservative strikes and smaller position size for wheel strategy."
+
+        return {
+            "pros": pros,
+            "cons": cons,
+            "market_analysis": market_analysis,
+            "analyst_target": analyst_target,
+            "csp_recommendation": csp_recommendation,
+            "risk_level": risk_level,
+            "verdict": verdict,
+        }
 
     except Exception as e:
         return {"error": str(e)}
