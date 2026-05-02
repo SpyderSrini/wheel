@@ -351,8 +351,171 @@ def fetch_us_stock_data(ticker, max_capital_usd, expiry_days=30):
         }
     except: return None
 
+# ── Wealth Builder Universe (Claude's picks) ─────────────────────────────────
+WB_STOCKS = {
+    # 🇮🇳 INDIA — Dividend kings + wheel-friendly
+    'ITC.NS':        {'exchange': 'NSE', 'theme': 'FMCG',       'region': 'India',  'why': 'Dividend king, consistent cash flows, liquid options'},
+    'COALINDIA.NS':  {'exchange': 'NSE', 'theme': 'Energy',      'region': 'India',  'why': 'PSU monopoly, massive dividend, low volatility'},
+    'POWERGRID.NS':  {'exchange': 'NSE', 'theme': 'Utility',     'region': 'India',  'why': 'Regulated returns, quarterly dividends, stable'},
+    'HDFCBANK.NS':   {'exchange': 'NSE', 'theme': 'Banking',     'region': 'India',  'why': 'Best private bank, quality loan book, growing'},
+    'INFY.NS':       {'exchange': 'NSE', 'theme': 'IT',          'region': 'India',  'why': 'Dollar earnings, consistent buybacks, global moat'},
+    'BAJAJ-AUTO.NS': {'exchange': 'NSE', 'theme': 'Auto',        'region': 'India',  'why': 'Best-in-class margins, strong dividend, EV pivot'},
+    'NESTLEIND.NS':  {'exchange': 'NSE', 'theme': 'FMCG',        'region': 'India',  'why': 'Defensive FMCG, pricing power, consistent compounder'},
+    'TITAN.NS':      {'exchange': 'NSE', 'theme': 'Consumer',    'region': 'India',  'why': 'Premium brand moat, aspirational consumption play'},
+    # 🇭🇰 HONG KONG — Yield + stability
+    '0823.HK':       {'exchange': 'HKEX', 'theme': 'REIT',       'region': 'HK',     'why': 'Best Asian REIT, inflation-linked rents, 4%+ yield'},
+    '0005.HK':       {'exchange': 'HKEX', 'theme': 'Banking',    'region': 'HK',     'why': 'HSBC global franchise, high dividend, recovering HK'},
+    '0002.HK':       {'exchange': 'HKEX', 'theme': 'Utility',    'region': 'HK',     'why': 'CLP utility monopoly, reliable dividend, low risk'},
+    '0066.HK':       {'exchange': 'HKEX', 'theme': 'Transport',  'region': 'HK',     'why': 'MTR rail monopoly, property income, consistent dividend'},
+    '1810.HK':       {'exchange': 'HKEX', 'theme': 'Tech',       'region': 'HK',     'why': 'Xiaomi ecosystem, EV growth story, undervalued tech'},
+    '2318.HK':       {'exchange': 'HKEX', 'theme': 'Insurance',  'region': 'HK',     'why': 'Ping An — China insurance leader, deep value, high yield'},
+    # 🇺🇸 USA — Dividend aristocrats + premium generators
+    'KO':            {'exchange': 'NYSE',   'theme': 'Consumer',  'region': 'USA',    'why': 'Dividend aristocrat 60+ years, global brand, recession-proof'},
+    'PG':            {'exchange': 'NYSE',   'theme': 'Consumer',  'region': 'USA',    'why': 'Consumer staples moat, pricing power, consistent grower'},
+    'JNJ':           {'exchange': 'NYSE',   'theme': 'Healthcare','region': 'USA',    'why': 'Healthcare giant, dividend king, diversified revenue'},
+    'ABBV':          {'exchange': 'NYSE',   'theme': 'Pharma',    'region': 'USA',    'why': 'Humira + Skyrizi pipeline, 4%+ yield, strong FCF'},
+    'XOM':           {'exchange': 'NYSE',   'theme': 'Energy',    'region': 'USA',    'why': 'Energy supermajor, rising dividend, LNG tailwinds'},
+    'ET':            {'exchange': 'NYSE',   'theme': 'Energy',    'region': 'USA',    'why': 'Midstream MLP, 8%+ distribution, AI energy infrastructure'},
+    'T':             {'exchange': 'NYSE',   'theme': 'Telecom',   'region': 'USA',    'why': '6%+ dividend yield, 5G infrastructure, debt reducing'},
+    'O':             {'exchange': 'NYSE',   'theme': 'REIT',      'region': 'USA',    'why': 'Monthly dividend REIT, 30+ years streak, net lease model'},
+    'MSFT':          {'exchange': 'NASDAQ', 'theme': 'Tech',      'region': 'USA',    'why': 'Cloud monopoly, AI leader, growing dividend, fortress balance sheet'},
+    'AAPL':          {'exchange': 'NASDAQ', 'theme': 'Tech',      'region': 'USA',    'why': 'Ecosystem lock-in, massive buybacks, services growth'},
+    'JPM':           {'exchange': 'NYSE',   'theme': 'Banking',   'region': 'USA',    'why': 'Best US bank, growing dividend, capital return machine'},
+    'SLV':           {'exchange': 'NYSE',   'theme': 'Metal',     'region': 'USA',    'why': 'Silver supply deficit, industrial demand, 3x weekly options'},
+    'GLD':           {'exchange': 'NYSE',   'theme': 'Metal',     'region': 'USA',    'why': 'Safe haven, all-time highs breakout, inflation hedge'},
+    'SPY':           {'exchange': 'NYSE',   'theme': 'ETF',       'region': 'USA',    'why': 'S&P500 ETF, most liquid options on earth, low cost wheel'},
+    'QQQ':           {'exchange': 'NASDAQ', 'theme': 'ETF',       'region': 'USA',    'why': 'Nasdaq ETF, tech exposure, excellent option premiums'},
+    'NVDA':          {'exchange': 'NASDAQ', 'theme': 'Tech',      'region': 'USA',    'why': 'AI chip monopoly, explosive growth, high premium for CSPs'},
+}
+
+REGION_COLORS = {
+    'India': '#f5a623',
+    'HK':    '#00d4aa',
+    'USA':   '#4b9fff',
+}
+
+THEME_ICONS = {
+    'FMCG': '🛒', 'Energy': '⚡', 'Utility': '💡', 'Banking': '🏦',
+    'IT': '💻', 'Auto': '🚗', 'Consumer': '🛍️', 'REIT': '🏢',
+    'Transport': '🚇', 'Insurance': '🛡️', 'Healthcare': '🏥',
+    'Pharma': '💊', 'Telecom': '📡', 'Tech': '🖥️', 'Metal': '🪙',
+    'ETF': '📊',
+}
+
+def calc_wealth_score(above_200dma, pct_from_high, hv_30, dividend_yield,
+                      profit_margins, debt_to_equity, revenue_growth, beta, analyst_upside):
+    """Wealth Builder scoring — weighted toward income + quality + safety"""
+    score = 0
+    # 1. Trend (15 pts) — must be investable
+    if above_200dma: score += 15
+
+    # 2. Pullback sweet spot (20 pts) — buy quality on dips
+    if 10 <= pct_from_high <= 30:   score += 20
+    elif 5  <= pct_from_high < 10:  score += 12
+    elif 30 < pct_from_high <= 45:  score += 10
+    elif pct_from_high < 5:         score += 8   # near highs — less upside
+
+    # 3. Dividend yield (25 pts) — core wealth builder criterion
+    if dividend_yield >= 5:         score += 25
+    elif dividend_yield >= 3:       score += 20
+    elif dividend_yield >= 2:       score += 14
+    elif dividend_yield >= 1:       score += 8
+    # No dividend = 0 pts — penalised in wealth builder
+
+    # 4. Option premium viability (15 pts)
+    if 18 <= hv_30 <= 45:           score += 15
+    elif 15 <= hv_30 < 18:          score += 8
+    elif 45 < hv_30 <= 60:          score += 10
+
+    # 5. Business quality (15 pts)
+    if profit_margins and profit_margins > 20: score += 15
+    elif profit_margins and profit_margins > 10: score += 10
+    elif profit_margins and profit_margins > 5:  score += 5
+
+    # 6. Balance sheet safety (10 pts)
+    if debt_to_equity is not None:
+        if debt_to_equity < 50:     score += 10
+        elif debt_to_equity < 100:  score += 6
+        elif debt_to_equity < 200:  score += 3
+    else:
+        score += 5  # unknown — neutral
+
+    return min(score, 100)
+
+def fetch_wb_stock_data(ticker, meta, expiry_days=30):
+    """Fetch data for wealth builder stock"""
+    try:
+        stock = yf.Ticker(ticker)
+        hist  = stock.history(period='1y')
+        if len(hist) < 50: return None
+        st.session_state.hist_data[ticker.replace('.NS','').replace('.HK','').lstrip('0')] = hist
+        info          = stock.info
+        current_price = hist['Close'].iloc[-1]
+        ma50   = hist['Close'].rolling(50).mean().iloc[-1]
+        ma200  = hist['Close'].rolling(200).mean().iloc[-1] if len(hist) >= 200 else None
+        above_50dma  = bool(current_price > ma50)
+        above_200dma = bool(current_price > ma200) if ma200 else False
+        high_52w      = hist['High'].max()
+        low_52w       = hist['Low'].min()
+        pct_from_high = ((high_52w - current_price) / high_52w) * 100
+        hv_30  = hist['Close'].pct_change().dropna()[-30:].std() * np.sqrt(252) * 100
+        # Fundamentals
+        annual_div     = info.get('dividendRate') or 0
+        div_yield      = min((annual_div / current_price * 100) if current_price > 0 else 0, 20.0)
+        profit_margins = (info.get('profitMargins') or 0) * 100
+        debt_to_equity = info.get('debtToEquity')
+        revenue_growth = (info.get('revenueGrowth') or 0) * 100
+        beta           = info.get('beta')
+        analyst_mean   = info.get('targetMeanPrice')
+        analyst_upside = ((analyst_mean - current_price) / current_price * 100) if analyst_mean else 0
+        # Strikes
+        sigma       = hv_30 / 100; sqrtT = np.sqrt(expiry_days / 365)
+        strike_d30  = round(current_price * np.exp(-0.524 * sigma * sqrtT), 2)
+        strike_d25  = round(current_price * np.exp(-0.674 * sigma * sqrtT), 2)
+        strike_5pct = round(current_price * 0.95, 2)
+        # Round to conventions
+        exch = meta['exchange']
+        if exch == 'NSE':
+            strike_d30 = round(strike_d30/5)*5; strike_d25 = round(strike_d25/5)*5; strike_5pct = round(strike_5pct/5)*5
+        elif exch == 'HKEX':
+            strike_d30 = round(strike_d30*2)/2; strike_d25 = round(strike_d25*2)/2; strike_5pct = round(strike_5pct*2)/2
+        else:
+            strike_d30 = round(strike_d30*2)/2; strike_d25 = round(strike_d25*2)/2; strike_5pct = round(strike_5pct*2)/2
+
+        currency = {'NSE':'₹', 'HKEX':'HK$'}.get(exch, '$')
+        wb_score = calc_wealth_score(above_200dma, pct_from_high, hv_30, div_yield,
+                                     profit_margins, debt_to_equity, revenue_growth, beta, analyst_upside)
+        return {
+            'ticker':         ticker.replace('.NS','').replace('.HK','').lstrip('0') if exch != 'NSE' else ticker.replace('.NS',''),
+            'raw_ticker':     ticker,
+            'name':           info.get('shortName', ticker)[:28],
+            'exchange':       exch,
+            'region':         meta['region'],
+            'theme':          meta['theme'],
+            'why':            meta['why'],
+            'currency':       currency,
+            'current_price':  round(current_price, 2),
+            'strike_d30':     strike_d30,
+            'strike_d25':     strike_d25,
+            'strike_5pct':    strike_5pct,
+            'above_50dma':    above_50dma,
+            'above_200dma':   above_200dma,
+            'pct_from_high':  round(pct_from_high, 1),
+            'hv_30':          round(hv_30, 1),
+            'dividend_yield': round(div_yield, 2),
+            'profit_margins': round(profit_margins, 1),
+            'debt_to_equity': round(debt_to_equity, 1) if debt_to_equity else None,
+            'revenue_growth': round(revenue_growth, 1),
+            'analyst_upside': round(analyst_upside, 1),
+            'beta':           round(beta, 2) if beta else None,
+            'analyst_mean':   analyst_mean,
+            'wheel_score':    wb_score,
+            'capital_required': strike_5pct * 100,
+        }
+    except: return None
+
 # ── Session State ─────────────────────────────────────────────────────────────
-for key, val in {'show_chart': {}, 'hist_data': {}, 'nse_results': None, 'nse_time': None, 'hk_results': None, 'hk_time': None, 'us_results': None, 'us_time': None, 'metals_results': None, 'metals_time': None, 'ai_analysis': {}}.items():
+for key, val in {'show_chart': {}, 'hist_data': {}, 'nse_results': None, 'nse_time': None, 'hk_results': None, 'hk_time': None, 'us_results': None, 'us_time': None, 'metals_results': None, 'metals_time': None, 'wb_results': None, 'wb_time': None, 'ai_analysis': {}}.items():
     if key not in st.session_state:
         st.session_state[key] = val
 
@@ -764,7 +927,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
-tab_nse, tab_hk, tab_us, tab_metals = st.tabs(["🇮🇳  NSE Screener", "🇭🇰  HK Screener", "🇺🇸  US Screener", "🪙  Metals"])
+tab_nse, tab_hk, tab_us, tab_metals, tab_wb = st.tabs(["🇮🇳  NSE Screener", "🇭🇰  HK Screener", "🇺🇸  US Screener", "🪙  Metals", "💎  Wealth Builder"])
 
 # ── TAB 1: NSE ────────────────────────────────────────────────────────────────
 with tab_nse:
@@ -1088,6 +1251,254 @@ with tab_metals:
             <p style='font-family:Space Mono,monospace; color:#6b8fa8; margin:1rem 0 0.5rem'>Metals Wheel Screener</p>
             <p style='font-size:0.85rem'>Set capital limit and click <strong style='color:#00d4aa'>Run Scan</strong></p>
             <p style='font-size:0.78rem; margin-top:0.5rem'>Gold · Silver · Copper · Steel · Aluminium · 11 stocks</p>
+        </div>""", unsafe_allow_html=True)
+
+# ── TAB 5: WEALTH BUILDER ────────────────────────────────────────────────────
+with tab_wb:
+    st.markdown("""
+    <div class='main-header' style='background:linear-gradient(135deg,#0f1f2e,#1a3a2e,#0f2537);margin-bottom:1.5rem'>
+        <h1 style='color:#ffd700'>💎 WEALTH BUILDER SCREENER</h1>
+        <p style='color:#a0c4b0'>Claude's curated universe · Dividend + Premium double income strategy · India + HK + USA</p>
+    </div>""", unsafe_allow_html=True)
+
+    # Philosophy banner
+    with st.expander("💡 The Wealth Builder Philosophy — Why these stocks?", expanded=False):
+        ph1, ph2, ph3 = st.columns(3)
+        with ph1:
+            st.markdown("""**🎯 Strategy: Double Income**
+- Collect option premiums (5–15% annually)
+- Collect dividends (2–8% annually)
+- Combined yield: 8–20%+ per year
+- Capital appreciation as bonus""")
+        with ph2:
+            st.markdown("""**🏆 Stock Criteria**
+- Quality moat businesses
+- Consistent dividend payers
+- Liquid options available
+- Global diversification
+- Survive market downturns""")
+        with ph3:
+            st.markdown("""**📊 Wealth Score Weights**
+- Dividend yield: 25 pts
+- Business quality: 15 pts
+- Balance sheet safety: 10 pts
+- Trend (200 DMA): 15 pts
+- Pullback zone: 20 pts
+- Option premium viability: 15 pts""")
+
+    # Config
+    st.markdown("<div class='config-panel'><div class='config-title'>⚙️ Screener Configuration</div>", unsafe_allow_html=True)
+    wb1, wb2, wb3, wb4 = st.columns([1.5, 1.5, 1.5, 1])
+    with wb1:
+        wb_regions = st.multiselect("🌍 Regions", ['India','HK','USA'], default=[], placeholder="All regions", key="wb_reg")
+    with wb2:
+        wb_themes  = st.multiselect("🏭 Themes", sorted(set(v['theme'] for v in WB_STOCKS.values())), default=[], placeholder="All themes", key="wb_theme")
+    with wb3:
+        wb_expiry  = st.selectbox("📅 Expiry Target", [7,15,30,45], index=2, format_func=lambda x: f"{x} days", key="wb_exp")
+    with wb4:
+        st.markdown("<br>", unsafe_allow_html=True)
+        run_wb = st.button("🚀 Run Scan", key="run_wb", use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    if run_wb:
+        st.session_state.wb_results = None
+        filtered_wb = {k: v for k, v in WB_STOCKS.items()
+                       if (not wb_regions or v['region'] in wb_regions)
+                       and (not wb_themes or v['theme'] in wb_themes)}
+        wb_bar = st.progress(0, text="💎 Scanning wealth builder stocks...")
+        wb_res = []
+        for i, (ticker, meta) in enumerate(filtered_wb.items()):
+            wb_bar.progress((i+1)/len(filtered_wb),
+                text=f"💎 {ticker} — {meta['theme']} · {meta['region']} ({i+1}/{len(filtered_wb)})")
+            d = fetch_wb_stock_data(ticker, meta, wb_expiry)
+            if d:
+                wb_res.append(d)
+                chart_key = d['ticker']
+                st.session_state.show_chart[chart_key] = False
+        wb_bar.empty()
+        st.session_state.wb_results = wb_res
+        st.session_state.wb_time = datetime.now().strftime('%d %b %Y, %I:%M %p')
+
+    if st.session_state.wb_results:
+        wb_res = st.session_state.wb_results
+        wb_df  = pd.DataFrame(wb_res)
+
+        st.markdown(f"<p style='color:#6b8fa8; font-size:0.8rem; margin:0.5rem 0'>Last scan: {st.session_state.wb_time}</p>", unsafe_allow_html=True)
+
+        # Summary metrics
+        wm1, wm2, wm3, wm4, wm5 = st.columns(5)
+        for col, lbl, val in zip([wm1,wm2,wm3,wm4,wm5],
+            ['Stocks Scanned','🇮🇳 India','🇭🇰 HK','🇺🇸 USA','Avg Wealth Score'],
+            [len(wb_res),
+             len(wb_df[wb_df['region']=='India']),
+             len(wb_df[wb_df['region']=='HK']),
+             len(wb_df[wb_df['region']=='USA']),
+             round(wb_df['wheel_score'].mean())]):
+            col.markdown(f"<div class='metric-box'><div class='label'>{lbl}</div><div class='value'>{val}</div></div>", unsafe_allow_html=True)
+
+        # Filter & sort
+        wb_df = apply_filters_and_sort(wb_df, 'wb')
+
+        # Region tabs within Wealth Builder
+        st.markdown("---")
+        reg_all, reg_in, reg_hk, reg_us = st.tabs(["🌍 All", "🇮🇳 India", "🇭🇰 Hong Kong", "🇺🇸 USA"])
+
+        def render_wb_card(r):
+            region_color = REGION_COLORS.get(r['region'], '#a0b4c0')
+            theme_icon   = THEME_ICONS.get(r['theme'], '📌')
+            score_cls    = "score-high" if r['wheel_score'] >= 65 else "score-mid"
+            trend_tag    = "<span class='tag tag-green'>📈 Above 200DMA</span>" if r['above_200dma'] else                            "<span class='tag tag-yellow'>〰️ Above 50DMA</span>" if r['above_50dma'] else                            "<span class='tag tag-red'>📉 Below MAs</span>"
+            div_tag = f"<span class='tag tag-blue'>💰 Div {r['dividend_yield']:.1f}%</span>" if r['dividend_yield'] > 0 else ""
+            upside_tag = f"<span class='tag' style='background:#8884d822;color:#8884d8'>📈 Analyst +{r['analyst_upside']:.0f}%</span>" if r['analyst_upside'] > 5 else ""
+            chart_key   = r['ticker']
+            chart_open  = st.session_state.show_chart.get(chart_key, False)
+            chart_label = "📉 Hide Chart" if chart_open else "📈 View Chart"
+
+            st.markdown(f"""
+            <div style='background:linear-gradient(135deg,#0d1a26,#0d1f18);
+                 border:1px solid {region_color}44; border-left:4px solid {region_color};
+                 border-radius:10px; padding:1.2rem 1.5rem; margin-bottom:1rem'>
+                <div style='display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px'>
+                    <div style='display:flex; align-items:center; gap:10px; flex-wrap:wrap'>
+                        <span style='font-family:Space Mono,monospace; font-size:1.2rem; font-weight:700; color:#fff'>{r['ticker']}</span>
+                        <span style='color:#6b8fa8; font-size:0.82rem'>{r['name']}</span>
+                        <span style='background:{region_color}22; color:{region_color}; border:1px solid {region_color}44;
+                              padding:2px 8px; border-radius:4px; font-size:0.72rem; font-weight:600'>{r['region']} · {r['exchange']}</span>
+                    </div>
+                    <span class='score-badge {score_cls}'>💎 {r['wheel_score']}/100</span>
+                </div>
+                <div style='margin-top:6px; color:#7fb3a0; font-size:0.8rem; font-style:italic'>
+                    {theme_icon} {r['theme']} · {r['why']}
+                </div>
+                <div style='margin-top:8px; display:flex; gap:12px; flex-wrap:wrap; font-size:0.84rem; color:#a0b4c0'>
+                    <span>💵 CMP: <strong style='color:#fff'>{r['currency']}{r['current_price']:,.2f}</strong></span>
+                    <span>📉 From 52W High: <strong style='color:#f5a623'>-{r['pct_from_high']:.1f}%</strong></span>
+                    <span>🌡️ HV30: {r['hv_30']:.1f}%</span>
+                    {'<span>📊 Margin: ' + str(r['profit_margins']) + '%</span>' if r['profit_margins'] else ''}
+                    {'<span>⚡ Beta: ' + str(r['beta']) + '</span>' if r['beta'] else ''}
+                </div>
+                <div style='margin-top:6px'>{trend_tag}{div_tag}{upside_tag}</div>
+                <div class='strike-box' style='margin-top:0.8rem'>
+                    <div style='color:#6b8fa8; font-size:0.72rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px'>
+                        CSP Strike Suggestions · {wb_expiry}-day expiry
+                    </div>
+                    <div class='strike-row'>
+                        <span class='strike-label'>🟢 Delta ~0.30 (Aggressive)</span>
+                        <span class='strike-value'>{r['currency']}{r['strike_d30']:,.2f}</span>
+                    </div>
+                    <div class='strike-row'>
+                        <span class='strike-label'>🟡 Delta ~0.25 (Moderate)</span>
+                        <span class='strike-value'>{r['currency']}{r['strike_d25']:,.2f}</span>
+                    </div>
+                    <div class='strike-row'>
+                        <span class='strike-label'>🔵 5% OTM (Conservative)</span>
+                        <span class='strike-value'>{r['currency']}{r['strike_5pct']:,.2f}</span>
+                    </div>
+                </div>
+            </div>""", unsafe_allow_html=True)
+
+            cb1, cb2 = st.columns([1,1])
+            with cb1:
+                st.button(chart_label, key=f"wb_chart_{r['ticker']}", on_click=toggle_chart, args=(chart_key,))
+            with cb2:
+                if r['wheel_score'] >= 55:
+                    ai_state = st.session_state.ai_analysis.get(chart_key, {})
+                    ai_open  = ai_state.get('open', False)
+                    st.button("🤖 Hide Analysis" if ai_open else "🤖 AI Analysis",
+                              key=f"wb_ai_{r['ticker']}", on_click=toggle_analysis, args=(chart_key,))
+            if chart_open:
+                render_chart(chart_key, r['exchange'])
+            if r['wheel_score'] >= 55:
+                ai_state = st.session_state.ai_analysis.get(chart_key, {})
+                if ai_state.get('open', False):
+                    cached = ai_state.get('data')
+                    if not cached:
+                        with st.spinner(f"🤖 Analysing {r['ticker']}..."):
+                            cached = get_ai_analysis(r['ticker'], r['name'], r['exchange'],
+                                        r['current_price'], r['theme'], r['hv_30'],
+                                        r['pct_from_high'], r['dividend_yield'], r['wheel_score'])
+                            st.session_state.ai_analysis[chart_key]['data'] = cached
+                    if 'error' not in cached:
+                        risk_color = {'Low':'#00d4aa','Medium':'#f5a623','High':'#ff4b4b'}.get(cached.get('risk_level','Medium'),'#f5a623')
+                        st.markdown(f"""
+                        <div style='background:#0a1e30;border:1px solid #1e3347;border-radius:10px;padding:1.2rem 1.5rem;margin-top:0.5rem'>
+                            <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:8px'>
+                                <span style='font-family:Space Mono,monospace;color:#ffd700;font-size:0.95rem;font-weight:700'>🤖 Wealth Analysis — {r['ticker']}</span>
+                                <span style='background:{risk_color}22;color:{risk_color};border:1px solid {risk_color}44;padding:2px 12px;border-radius:20px;font-size:0.78rem;font-weight:600'>Risk: {cached.get('risk_level','N/A')}</span>
+                            </div>
+                            <div style='display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem'>
+                                <div style='background:#0d2318;border:1px solid #00d4aa33;border-radius:8px;padding:0.8rem'>
+                                    <div style='color:#00d4aa;font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px'>✅ Pros</div>
+                                    {''.join(f"<div style='color:#c8dce8;font-size:0.83rem;padding:3px 0;border-bottom:1px solid #1e3347'>• {p}</div>" for p in cached.get('pros',[]))}
+                                </div>
+                                <div style='background:#1e1218;border:1px solid #ff4b4b33;border-radius:8px;padding:0.8rem'>
+                                    <div style='color:#ff4b4b;font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px'>⚠️ Cons</div>
+                                    {''.join(f"<div style='color:#c8dce8;font-size:0.83rem;padding:3px 0;border-bottom:1px solid #1e3347'>• {c}</div>" for c in cached.get('cons',[]))}
+                                </div>
+                            </div>
+                            <div style='background:#111e2d;border:1px solid #1e3347;border-radius:8px;padding:0.8rem;margin-bottom:0.8rem'>
+                                <div style='color:#6b8fa8;font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px'>📊 Market Analysis</div>
+                                <div style='color:#c8dce8;font-size:0.85rem;line-height:1.6'>{cached.get('market_analysis','')}</div>
+                            </div>
+                            <div style='display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;margin-bottom:0.8rem'>
+                                <div style='background:#111e2d;border:1px solid #1e3347;border-radius:8px;padding:0.8rem'>
+                                    <div style='color:#6b8fa8;font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px'>🎯 Analyst Target</div>
+                                    <div style='color:#f5a623;font-size:0.88rem;font-weight:600'>{cached.get('analyst_target','N/A')}</div>
+                                </div>
+                                <div style='background:#111e2d;border:1px solid #1e3347;border-radius:8px;padding:0.8rem'>
+                                    <div style='color:#6b8fa8;font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px'>💡 CSP Recommendation</div>
+                                    <div style='color:#c8dce8;font-size:0.83rem'>{cached.get('csp_recommendation','N/A')}</div>
+                                </div>
+                            </div>
+                            <div style='background:#0d2318;border:1px solid #ffd70033;border-radius:8px;padding:0.7rem 1rem'>
+                                <span style='color:#6b8fa8;font-size:0.72rem;text-transform:uppercase;letter-spacing:1px'>⚖️ Verdict: </span>
+                                <span style='color:#ffd700;font-size:0.85rem;font-weight:600'>{cached.get('verdict','')}</span>
+                            </div>
+                        </div>""", unsafe_allow_html=True)
+
+        def render_wb_region(df_region):
+            if df_region.empty:
+                st.info("No stocks match your filters for this region.")
+                return
+            top = df_region[df_region['wheel_score'] >= 65].sort_values('wheel_score', ascending=False)
+            rest = df_region[df_region['wheel_score'] < 65].sort_values('wheel_score', ascending=False)
+            if not top.empty:
+                st.markdown("<div class='section-head'><span>🏆 Top Picks</span></div>", unsafe_allow_html=True)
+                for _, row in top.iterrows():
+                    r = row.to_dict(); r['_tier'] = 1
+                    render_wb_card(r)
+            if not rest.empty:
+                st.markdown("<div class='section-head'><span>👀 Watchlist</span></div>", unsafe_allow_html=True)
+                for _, row in rest.iterrows():
+                    r = row.to_dict(); r['_tier'] = 2
+                    render_wb_card(r)
+
+        with reg_all:
+            render_wb_region(wb_df)
+        with reg_in:
+            render_wb_region(wb_df[wb_df['region']=='India'])
+        with reg_hk:
+            render_wb_region(wb_df[wb_df['region']=='HK'])
+        with reg_us:
+            render_wb_region(wb_df[wb_df['region']=='USA'])
+
+        st.markdown("---")
+        st.download_button("📥 Download Wealth Builder Results (CSV)",
+            data=wb_df.sort_values('wheel_score', ascending=False).to_csv(index=False),
+            file_name=f"wealth_builder_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv", use_container_width=True)
+    else:
+        st.markdown("""
+        <div style='text-align:center; padding:4rem 2rem; color:#3a5060'>
+            <div style='font-size:3.5rem'>💎</div>
+            <p style='font-family:Space Mono,monospace; color:#ffd700; margin:1rem 0 0.5rem; font-size:1.1rem'>Wealth Builder Screener</p>
+            <p style='font-size:0.9rem; color:#6b8fa8'>Claude's curated picks for dividend + premium double income</p>
+            <p style='font-size:0.82rem; margin-top:0.5rem'>30 stocks · 🇮🇳 India · 🇭🇰 Hong Kong · 🇺🇸 USA · No lot size constraints</p>
+            <div style='display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-top:1.5rem'>
+                <span class='tag tag-blue' style='padding:5px 12px'>💰 Dividend yield weighted 25%</span>
+                <span class='tag tag-green' style='padding:5px 12px'>📈 Quality business moats</span>
+                <span class='tag tag-yellow' style='padding:5px 12px'>🌍 Global diversification</span>
+            </div>
         </div>""", unsafe_allow_html=True)
 
 # ── Disclaimer ────────────────────────────────────────────────────────────────
