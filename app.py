@@ -1343,7 +1343,7 @@ with tab_wb:
         st.markdown("---")
         reg_all, reg_in, reg_hk, reg_us = st.tabs(["🌍 All", "🇮🇳 India", "🇭🇰 Hong Kong", "🇺🇸 USA"])
 
-        def render_wb_card(r):
+        def render_wb_card(r, tab_id='all'):
             region_color = REGION_COLORS.get(r['region'], '#a0b4c0')
             theme_icon   = THEME_ICONS.get(r['theme'], '📌')
             score_cls    = "score-high" if r['wheel_score'] >= 65 else "score-mid"
@@ -1399,13 +1399,13 @@ with tab_wb:
 
             cb1, cb2 = st.columns([1,1])
             with cb1:
-                st.button(chart_label, key=f"wb_chart_{r['ticker']}", on_click=toggle_chart, args=(chart_key,))
+                st.button(chart_label, key=f"wb_chart_{r['ticker']}_{tab_id}", on_click=toggle_chart, args=(chart_key,))
             with cb2:
                 if r['wheel_score'] >= 55:
                     ai_state = st.session_state.ai_analysis.get(chart_key, {})
                     ai_open  = ai_state.get('open', False)
                     st.button("🤖 Hide Analysis" if ai_open else "🤖 AI Analysis",
-                              key=f"wb_ai_{r['ticker']}", on_click=toggle_analysis, args=(chart_key,))
+                              key=f"wb_ai_{r['ticker']}_{tab_id}", on_click=toggle_analysis, args=(chart_key,))
             if chart_open:
                 render_chart(chart_key, r['exchange'])
             if r['wheel_score'] >= 55:
@@ -1456,7 +1456,7 @@ with tab_wb:
                             </div>
                         </div>""", unsafe_allow_html=True)
 
-        def render_wb_region(df_region):
+        def render_wb_region(df_region, tab_id='all'):
             if df_region.empty:
                 st.info("No stocks match your filters for this region.")
                 return
@@ -1466,21 +1466,21 @@ with tab_wb:
                 st.markdown("<div class='section-head'><span>🏆 Top Picks</span></div>", unsafe_allow_html=True)
                 for _, row in top.iterrows():
                     r = row.to_dict(); r['_tier'] = 1
-                    render_wb_card(r)
+                    render_wb_card(r, tab_id)
             if not rest.empty:
                 st.markdown("<div class='section-head'><span>👀 Watchlist</span></div>", unsafe_allow_html=True)
                 for _, row in rest.iterrows():
                     r = row.to_dict(); r['_tier'] = 2
-                    render_wb_card(r)
+                    render_wb_card(r, tab_id)
 
         with reg_all:
-            render_wb_region(wb_df)
+            render_wb_region(wb_df, 'all')
         with reg_in:
-            render_wb_region(wb_df[wb_df['region']=='India'])
+            render_wb_region(wb_df[wb_df['region']=='India'], 'india')
         with reg_hk:
-            render_wb_region(wb_df[wb_df['region']=='HK'])
+            render_wb_region(wb_df[wb_df['region']=='HK'], 'hk')
         with reg_us:
-            render_wb_region(wb_df[wb_df['region']=='USA'])
+            render_wb_region(wb_df[wb_df['region']=='USA'], 'us')
 
         st.markdown("---")
         st.download_button("📥 Download Wealth Builder Results (CSV)",
