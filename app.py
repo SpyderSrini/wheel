@@ -425,7 +425,7 @@ Respond ONLY in this exact JSON format — no markdown, no preamble, no extra te
 Risk level must be exactly one of: Low / Medium / High"""
 
         genai.configure(api_key=api_key)
-        model    = genai.GenerativeModel("gemini-1.5-flash")
+        model    = genai.GenerativeModel("gemini-2.0-flash")
         response = model.generate_content(prompt)
         result_text = response.text.strip()
         # Strip markdown fences if present
