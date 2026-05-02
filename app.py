@@ -193,6 +193,35 @@ US_STOCKS = {
     'T':     {'lot': 1, 'sector': 'Telecom'},
 }
 
+# ── Metals Universe ──────────────────────────────────────────────────────────
+METALS_STOCKS = {
+    # Gold
+    'GLD':  {'lot': 1, 'sector': 'Gold',      'metal': 'Gold',      'type': 'ETF'},
+    'NEM':  {'lot': 1, 'sector': 'Gold',      'metal': 'Gold',      'type': 'Miner'},
+    'GOLD': {'lot': 1, 'sector': 'Gold',      'metal': 'Gold',      'type': 'Miner'},
+    # Silver
+    'SLV':  {'lot': 1, 'sector': 'Silver',    'metal': 'Silver',    'type': 'ETF'},
+    'AG':   {'lot': 1, 'sector': 'Silver',    'metal': 'Silver',    'type': 'Miner'},
+    # Copper
+    'FCX':  {'lot': 1, 'sector': 'Copper',    'metal': 'Copper',    'type': 'Miner'},
+    'CPER': {'lot': 1, 'sector': 'Copper',    'metal': 'Copper',    'type': 'ETF'},
+    # Steel
+    'NUE':  {'lot': 1, 'sector': 'Steel',     'metal': 'Steel',     'type': 'Producer'},
+    'X':    {'lot': 1, 'sector': 'Steel',     'metal': 'Steel',     'type': 'Producer'},
+    'CLF':  {'lot': 1, 'sector': 'Steel',     'metal': 'Steel',     'type': 'Producer'},
+    # Aluminium
+    'AA':   {'lot': 1, 'sector': 'Aluminium', 'metal': 'Aluminium', 'type': 'Producer'},
+}
+
+# Metal color mapping for UI
+METAL_COLORS = {
+    'Gold':      '#f5a623',
+    'Silver':    '#a0b4c0',
+    'Copper':    '#cd7c3a',
+    'Steel':     '#6b8fa8',
+    'Aluminium': '#8884d8',
+}
+
 # ── Shared Score Calculator ───────────────────────────────────────────────────
 def calc_wheel_score(above_50dma, above_200dma, pct_from_high, hv_30, dividend_yield, capital_required, max_capital):
     score = 0
@@ -324,7 +353,7 @@ def fetch_us_stock_data(ticker, max_capital_usd, expiry_days=30):
     except: return None
 
 # ── Session State ─────────────────────────────────────────────────────────────
-for key, val in {'show_chart': {}, 'hist_data': {}, 'nse_results': None, 'nse_time': None, 'hk_results': None, 'hk_time': None, 'us_results': None, 'us_time': None, 'ai_analysis': {}}.items():
+for key, val in {'show_chart': {}, 'hist_data': {}, 'nse_results': None, 'nse_time': None, 'hk_results': None, 'hk_time': None, 'us_results': None, 'us_time': None, 'metals_results': None, 'metals_time': None, 'ai_analysis': {}}.items():
     if key not in st.session_state:
         st.session_state[key] = val
 
@@ -338,7 +367,10 @@ def toggle_analysis(key):
 def get_ai_analysis(ticker, name, exchange, current_price, sector, hv30, pct_from_high, div_yield, wheel_score):
     """Call Claude API with web search to get stock analysis"""
     try:
-        client = anthropic.Anthropic()
+        api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return {"error": "Anthropic API key not set. Go to Streamlit Cloud → Settings → Secrets and add: ANTHROPIC_API_KEY = \"your-key-here\""}
+        client = anthropic.Anthropic(api_key=api_key)
         currency = 'HKD' if exchange == 'HKEX' else ('USD' if exchange in ['NASDAQ','NYSE'] else 'INR')
         prompt = f"""You are an expert options trader and equity analyst specialising in the wheel strategy (cash-secured puts).
 
@@ -579,7 +611,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
-tab_nse, tab_hk, tab_us = st.tabs(["🇮🇳  NSE Screener", "🇭🇰  HK Screener", "🇺🇸  US Screener"])
+tab_nse, tab_hk, tab_us, tab_metals = st.tabs(["🇮🇳  NSE Screener", "🇭🇰  HK Screener", "🇺🇸  US Screener", "🪙  Metals"])
 
 # ── TAB 1: NSE ────────────────────────────────────────────────────────────────
 with tab_nse:
@@ -779,6 +811,135 @@ with tab_us:
             <p style='font-family:Space Mono,monospace; color:#6b8fa8; margin:1rem 0 0.5rem'>Configure & Run Scan</p>
             <p style='font-size:0.85rem'>Set your USD capital limit and click <strong style='color:#00d4aa'>Run Scan</strong></p>
             <p style='font-size:0.78rem; margin-top:0.5rem'>30 stocks · Tech · Finance · Energy · ETFs · Healthcare</p>
+        </div>""", unsafe_allow_html=True)
+
+# ── TAB 4: METALS ────────────────────────────────────────────────────────────
+with tab_metals:
+    # Info banner
+    st.markdown("""
+    <div style='display:flex; gap:10px; flex-wrap:wrap; margin-bottom:1rem'>
+        <span class='tag' style='background:#f5a62322; color:#f5a623; padding:4px 10px; font-size:0.8rem'>🥇 Gold — GLD, NEM, GOLD</span>
+        <span class='tag' style='background:#a0b4c022; color:#a0b4c0; padding:4px 10px; font-size:0.8rem'>🥈 Silver — SLV, AG</span>
+        <span class='tag' style='background:#cd7c3a22; color:#cd7c3a; padding:4px 10px; font-size:0.8rem'>🟤 Copper — FCX, CPER</span>
+        <span class='tag' style='background:#6b8fa822; color:#6b8fa8; padding:4px 10px; font-size:0.8rem'>⚙️ Steel — NUE, X, CLF</span>
+        <span class='tag' style='background:#8884d822; color:#8884d8; padding:4px 10px; font-size:0.8rem'>🔩 Aluminium — AA</span>
+    </div>""", unsafe_allow_html=True)
+
+    # Config panel
+    st.markdown("<div class='config-panel'><div class='config-title'>⚙️ Screener Configuration</div>", unsafe_allow_html=True)
+    mt1, mt2, mt3, mt4, mt5 = st.columns([2, 1.5, 1.5, 1.2, 1])
+    with mt1:
+        max_cap_metals = st.slider("💰 Max Capital / Contract (USD)", 500, 50_000, 10_000, 500, format="$%d", key="metals_cap")
+        st.markdown(f"<p style='color:#00d4aa;font-weight:700;font-size:0.82rem;margin-top:-8px'>${max_cap_metals:,}</p>", unsafe_allow_html=True)
+    with mt2:
+        metals_expiry = st.selectbox("📅 Expiry", [7, 15, 30, 45], index=2, format_func=lambda x: f"{x}d", key="metals_exp")
+    with mt3:
+        metals_filter = st.multiselect("🪙 Metal Type", ['Gold','Silver','Copper','Steel','Aluminium'], default=[], placeholder="All metals", key="metals_filter")
+    with mt4:
+        metals_min_score = st.slider("🎯 Min Score", 0, 100, 40, 5, key="metals_score")
+        st.markdown(f"<p style='color:#00d4aa;font-weight:700;font-size:0.82rem;margin-top:-8px'>{metals_min_score}/100</p>", unsafe_allow_html=True)
+    with mt5:
+        st.markdown("<br>", unsafe_allow_html=True)
+        run_metals = st.button("🚀 Run Scan", key="run_metals")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    if run_metals:
+        st.session_state.metals_results = None
+        filtered_metals = {k: v for k, v in METALS_STOCKS.items()
+                           if not metals_filter or v['metal'] in metals_filter}
+        metals_bar = st.progress(0, text="🔍 Scanning metals stocks...")
+        metals_res = []
+        for i, (ticker, meta) in enumerate(filtered_metals.items()):
+            metals_bar.progress((i+1)/len(filtered_metals),
+                text=f"🔍 {ticker} — {meta['metal']} ({i+1}/{len(filtered_metals)})")
+            d = fetch_us_stock_data(ticker, max_cap_metals, metals_expiry)
+            if d and d['wheel_score'] >= metals_min_score:
+                d['metal']      = meta['metal']
+                d['metal_type'] = meta['type']
+                d['sector']     = meta['sector']
+                metals_res.append(d)
+                st.session_state.show_chart[ticker] = True
+        metals_bar.empty()
+        st.session_state.metals_results = metals_res
+        st.session_state.metals_time    = datetime.now().strftime('%d %b %Y, %I:%M %p')
+
+    if st.session_state.metals_results:
+        metals_res = st.session_state.metals_results
+        metals_df  = pd.DataFrame(metals_res)
+
+        tier1_m = metals_df[
+            (metals_df['capital_required'] <= max_cap_metals) &
+            (metals_df['wheel_score'] >= 55) &
+            (metals_df['above_200dma'] == True)
+        ].sort_values('wheel_score', ascending=False)
+        tier2_m = metals_df[~metals_df['ticker'].isin(tier1_m['ticker'])].sort_values('wheel_score', ascending=False)
+
+        st.markdown(f"<p style='color:#6b8fa8; font-size:0.8rem; margin:0.5rem 0'>Last scan: {st.session_state.metals_time}</p>", unsafe_allow_html=True)
+
+        # Summary metrics
+        q1, q2, q3, q4 = st.columns(4)
+        for col, lbl, val in zip([q1,q2,q3,q4],
+            ['Stocks Scanned','Tier 1','Tier 2','Avg Score'],
+            [len(metals_res), len(tier1_m), len(tier2_m), round(metals_df['wheel_score'].mean())]):
+            col.markdown(f"<div class='metric-box'><div class='label'>{lbl}</div><div class='value'>{val}</div></div>", unsafe_allow_html=True)
+
+        # Metal group summary
+        st.markdown("<div class='section-head'><span>🪙 Metal Group Summary</span></div>", unsafe_allow_html=True)
+        group_cols = st.columns(5)
+        for idx, metal in enumerate(['Gold','Silver','Copper','Steel','Aluminium']):
+            metal_stocks = metals_df[metals_df['metal'] == metal]
+            color = METAL_COLORS.get(metal, '#a0b4c0')
+            with group_cols[idx]:
+                if not metal_stocks.empty:
+                    best = metal_stocks.loc[metal_stocks['wheel_score'].idxmax()]
+                    st.markdown(f"""
+                    <div style='background:#111e2d; border:1px solid {color}44; border-top:3px solid {color};
+                         border-radius:8px; padding:0.8rem; text-align:center'>
+                        <div style='color:{color}; font-size:0.75rem; font-weight:700; text-transform:uppercase'>{metal}</div>
+                        <div style='color:#fff; font-size:1rem; font-weight:700; font-family:Space Mono,monospace; margin:4px 0'>{best['ticker']}</div>
+                        <div style='color:#a0b4c0; font-size:0.75rem'>Best: {best['wheel_score']}/100</div>
+                        <div style='color:{color}; font-size:0.8rem'>${best['current_price']:,.2f}</div>
+                    </div>""", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div style='background:#111e2d; border:1px solid {color}22; border-top:3px solid {color}44;
+                         border-radius:8px; padding:0.8rem; text-align:center; opacity:0.4'>
+                        <div style='color:{color}; font-size:0.75rem; font-weight:700; text-transform:uppercase'>{metal}</div>
+                        <div style='color:#6b8fa8; font-size:0.8rem; margin-top:4px'>No data</div>
+                    </div>""", unsafe_allow_html=True)
+
+        # Render Tier 1
+        st.markdown("<div class='section-head'><span>🏆 Tier 1 — Best Metals CSP Candidates</span></div>", unsafe_allow_html=True)
+        if tier1_m.empty:
+            st.info("No Tier 1 metals stocks. Try increasing capital limit or lowering min score.")
+        for _, row in tier1_m.iterrows():
+            r = row.to_dict(); r['_tier'] = 1
+            metal_color = METAL_COLORS.get(r.get('metal',''), '#a0b4c0')
+            # Inject metal badge into render_card via name field
+            r['name'] = f"{r.get('metal_type','')}"
+            render_card(r, r['ticker'], 'NASDAQ')
+
+        # Render Tier 2
+        st.markdown("<div class='section-head'><span>👀 Tier 2 — Watchlist</span></div>", unsafe_allow_html=True)
+        if tier2_m.empty:
+            st.info("All metals stocks qualified for Tier 1! 🎉")
+        for _, row in tier2_m.iterrows():
+            r = row.to_dict(); r['_tier'] = 2
+            r['name'] = f"{r.get('metal_type','')}"
+            render_card(r, r['ticker'], 'NASDAQ')
+
+        # Download
+        st.download_button("📥 Download Metals Results (CSV)",
+            data=metals_df.sort_values('wheel_score', ascending=False).to_csv(index=False),
+            file_name=f"metals_wheel_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv", use_container_width=True)
+    else:
+        st.markdown("""
+        <div style='text-align:center; padding:4rem 2rem; color:#3a5060'>
+            <div style='font-size:3.5rem'>🪙</div>
+            <p style='font-family:Space Mono,monospace; color:#6b8fa8; margin:1rem 0 0.5rem'>Metals Wheel Screener</p>
+            <p style='font-size:0.85rem'>Set capital limit and click <strong style='color:#00d4aa'>Run Scan</strong></p>
+            <p style='font-size:0.78rem; margin-top:0.5rem'>Gold · Silver · Copper · Steel · Aluminium · 11 stocks</p>
         </div>""", unsafe_allow_html=True)
 
 # ── Disclaimer ────────────────────────────────────────────────────────────────
