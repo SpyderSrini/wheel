@@ -927,7 +927,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
-tab_nse, tab_hk, tab_us, tab_metals, tab_wb = st.tabs(["🇮🇳  NSE Screener", "🇭🇰  HK Screener", "🇺🇸  US Screener", "🪙  Metals", "💎  Wealth Builder"])
+tab_wb, tab_nse, tab_hk, tab_us, tab_metals = st.tabs(["💎  Wealth Builder", "🇮🇳  NSE Screener", "🇭🇰  HK Screener", "🇺🇸  US Screener", "🪙  Metals"])
 
 # ── TAB 1: NSE ────────────────────────────────────────────────────────────────
 with tab_nse:
