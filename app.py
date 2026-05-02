@@ -11,7 +11,7 @@ import numpy as np
 from datetime import datetime
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import anthropic
+import google.generativeai as genai
 import json
 
 # ── Page Config ───────────────────────────────────────────────────────────────
@@ -365,57 +365,79 @@ def toggle_analysis(key):
     st.session_state.ai_analysis[key]['open'] = not st.session_state.ai_analysis[key].get('open', False)
 
 def get_ai_analysis(ticker, name, exchange, current_price, sector, hv30, pct_from_high, div_yield, wheel_score):
-    """Call Claude API with web search to get stock analysis"""
+    """Call Groq API (free) to get wheel strategy analysis"""
     try:
-        api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+        api_key = st.secrets.get("GEMINI_API_KEY", "")
         if not api_key:
-            return {"error": "Anthropic API key not set. Go to Streamlit Cloud → Settings → Secrets and add: ANTHROPIC_API_KEY = \"your-key-here\""}
-        client = anthropic.Anthropic(api_key=api_key)
-        currency = 'HKD' if exchange == 'HKEX' else ('USD' if exchange in ['NASDAQ','NYSE'] else 'INR')
-        prompt = f"""You are an expert options trader and equity analyst specialising in the wheel strategy (cash-secured puts).
+            return {"error": "Gemini API key not set. Go to Streamlit Cloud → Settings → Secrets and add: GEMINI_API_KEY = \"your-key-here\" (free at aistudio.google.com)"}
 
-Analyse {ticker} ({name}) listed on {exchange} for a wheel/CSP strategy.
+        # Fetch additional yfinance data to enrich the prompt
+        try:
+            tkr  = yf.Ticker(ticker if exchange != 'NSE' else ticker + '.NS' if '.' not in ticker else ticker)
+            info = tkr.info
+            analyst_low    = info.get('targetLowPrice', 'N/A')
+            analyst_high   = info.get('targetHighPrice', 'N/A')
+            analyst_mean   = info.get('targetMeanPrice', 'N/A')
+            analyst_rec    = info.get('recommendationKey', 'N/A').upper()
+            trailing_pe    = info.get('trailingPE', 'N/A')
+            forward_pe     = info.get('forwardPE', 'N/A')
+            revenue_growth = round((info.get('revenueGrowth') or 0) * 100, 1)
+            profit_margins = round((info.get('profitMargins') or 0) * 100, 1)
+            debt_to_equity = info.get('debtToEquity', 'N/A')
+            beta           = info.get('beta', 'N/A')
+        except:
+            analyst_low = analyst_high = analyst_mean = analyst_rec = 'N/A'
+            trailing_pe = forward_pe = revenue_growth = profit_margins = debt_to_equity = beta = 'N/A'
 
-Current data:
-- Price: {currency} {current_price:,.2f}
+        currency = 'HKD' if exchange == 'HKEX' else ('USD' if exchange in ['NASDAQ','NYSE','NASDAQ/NYSE'] else 'INR')
+
+        prompt = f"""You are an expert options trader and equity analyst specialising in the wheel strategy (cash-secured puts / covered calls).
+
+Analyse {ticker} ({name}) on {exchange} for suitability as a wheel strategy stock.
+
+LIVE MARKET DATA:
+- CMP: {currency} {current_price:,.2f}
 - Sector: {sector}
-- 30-day Historical Volatility: {hv30:.1f}%
+- HV30 (volatility): {hv30:.1f}%
 - Distance from 52W High: -{pct_from_high:.1f}%
 - Dividend Yield: {div_yield:.1f}%
 - Wheel Score: {wheel_score}/100
+- Beta: {beta}
+- Trailing PE: {trailing_pe} | Forward PE: {forward_pe}
+- Revenue Growth: {revenue_growth}% | Profit Margin: {profit_margins}%
+- Debt/Equity: {debt_to_equity}
+- Analyst Consensus: {analyst_rec}
+- Analyst Targets: Low {currency}{analyst_low} | Mean {currency}{analyst_mean} | High {currency}{analyst_high}
 
-Use web search to find the latest news, analyst targets, and market sentiment.
+Based on this data, provide a thorough wheel strategy analysis.
 
-Respond ONLY in this exact JSON format with no markdown or preamble:
+Respond ONLY in this exact JSON format — no markdown, no preamble, no extra text:
 {{
-  "pros": ["point 1", "point 2", "point 3", "point 4"],
-  "cons": ["point 1", "point 2", "point 3"],
-  "market_analysis": "2-3 sentence summary of current market position and trend",
-  "analyst_target": "price target or range with source",
-  "csp_recommendation": "specific recommendation for selling CSP — which strike, expiry, and why",
-  "risk_level": "Low / Medium / High",
-  "verdict": "one sentence verdict for wheel strategy suitability"
-}}"""
+  "pros": ["specific point 1", "specific point 2", "specific point 3", "specific point 4"],
+  "cons": ["specific risk 1", "specific risk 2", "specific risk 3"],
+  "market_analysis": "2-3 sentences on current price trend, momentum, and key technical levels relevant to selling puts",
+  "analyst_target": "analyst consensus target with context e.g. Mean target {currency}XX — X% upside from CMP",
+  "csp_recommendation": "specific CSP trade: suggested strike price, expiry duration, and reasoning based on support levels and IV",
+  "risk_level": "Low",
+  "verdict": "one clear sentence on whether this stock is suitable for wheel strategy right now"
+}}
 
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=1000,
-            tools=[{"type": "web_search_20250305", "name": "web_search"}],
-            messages=[{"role": "user", "content": prompt}]
-        )
+Risk level must be exactly one of: Low / Medium / High"""
 
-        # Extract text from response
-        result_text = ""
-        for block in response.content:
-            if hasattr(block, 'text'):
-                result_text += block.text
-
-        # Parse JSON
-        result_text = result_text.strip()
-        if result_text.startswith("```"):
+        genai.configure(api_key=api_key)
+        model    = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(prompt)
+        result_text = response.text.strip()
+        # Strip markdown fences if present
+        if "```" in result_text:
             result_text = result_text.split("```")[1]
             if result_text.startswith("json"):
                 result_text = result_text[4:]
+        # Find JSON object
+        start = result_text.find("{")
+        end   = result_text.rfind("}") + 1
+        if start != -1 and end > start:
+            result_text = result_text[start:end]
         return json.loads(result_text.strip())
 
     except Exception as e:
