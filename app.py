@@ -222,7 +222,7 @@ METAL_COLORS = {
 }
 
 # ── Shared Score Calculator ───────────────────────────────────────────────────
-def calc_wheel_score(above_50dma, above_200dma, pct_from_high, hv_30, dividend_yield, capital_required, max_capital):
+def calc_wheel_score(above_50dma, above_200dma, pct_from_high, hv_30, dividend_yield, capital_required=0, max_capital=999_999_999):
     score = 0
     if above_50dma:  score += 10
     if above_200dma: score += 15
@@ -357,7 +357,63 @@ for key, val in {'show_chart': {}, 'hist_data': {}, 'nse_results': None, 'nse_ti
         st.session_state[key] = val
 
 def toggle_chart(key):
-    st.session_state.show_chart[key] = not st.session_state.show_chart.get(key, True)
+    st.session_state.show_chart[key] = not st.session_state.show_chart.get(key, False)
+
+def apply_filters_and_sort(df, tab_key):
+    """Render filter/sort controls and return filtered+sorted dataframe"""
+    with st.expander("🔧 Filter & Sort Results", expanded=False):
+        fc1, fc2, fc3, fc4 = st.columns(4)
+        with fc1:
+            trend_filter = st.selectbox("📈 Trend Filter",
+                ["All", "Above 200 DMA only", "Above 50 DMA only", "Below MAs"],
+                key=f"trend_{tab_key}")
+        with fc2:
+            hv_range = st.slider("🌡️ HV30 Range (%)", 0, 100, (0, 100), 5, key=f"hv_{tab_key}")
+        with fc3:
+            pullback_range = st.slider("📉 From 52W High (%)", 0, 80, (0, 80), 5, key=f"pull_{tab_key}")
+        with fc4:
+            sort_by = st.selectbox("↕️ Sort By",
+                ["Wheel Score ↓", "Wheel Score ↑", "HV30 ↓", "HV30 ↑",
+                 "Pullback ↓", "Pullback ↑", "Dividend Yield ↓", "CMP ↓", "CMP ↑"],
+                key=f"sort_{tab_key}")
+
+        sc1, sc2 = st.columns(2)
+        with sc1:
+            min_div = st.slider("💰 Min Dividend Yield (%)", 0.0, 10.0, 0.0, 0.5, key=f"div_{tab_key}")
+        with sc2:
+            min_score = st.slider("🎯 Min Wheel Score", 0, 100, 40, 5, key=f"minscore_{tab_key}")
+
+    # Apply filters
+    filtered = df.copy()
+    if trend_filter == "Above 200 DMA only":
+        filtered = filtered[filtered['above_200dma'] == True]
+    elif trend_filter == "Above 50 DMA only":
+        filtered = filtered[filtered['above_50dma'] == True]
+    elif trend_filter == "Below MAs":
+        filtered = filtered[filtered['above_50dma'] == False]
+
+    filtered = filtered[
+        (filtered['hv_30'] >= hv_range[0]) & (filtered['hv_30'] <= hv_range[1]) &
+        (filtered['pct_from_high'] >= pullback_range[0]) & (filtered['pct_from_high'] <= pullback_range[1]) &
+        (filtered['dividend_yield'] >= min_div) &
+        (filtered['wheel_score'] >= min_score)
+    ]
+
+    # Apply sort
+    sort_map = {
+        "Wheel Score ↓":    ('wheel_score',    False),
+        "Wheel Score ↑":    ('wheel_score',    True),
+        "HV30 ↓":           ('hv_30',          False),
+        "HV30 ↑":           ('hv_30',          True),
+        "Pullback ↓":       ('pct_from_high',  False),
+        "Pullback ↑":       ('pct_from_high',  True),
+        "Dividend Yield ↓": ('dividend_yield', False),
+        "CMP ↓":            ('current_price',  False),
+        "CMP ↑":            ('current_price',  True),
+    }
+    col, asc = sort_map.get(sort_by, ('wheel_score', False))
+    filtered = filtered.sort_values(col, ascending=asc)
+    return filtered
 
 def toggle_analysis(key):
     st.session_state.ai_analysis[key] = st.session_state.ai_analysis.get(key, {})
@@ -577,7 +633,7 @@ def render_card(r, chart_key, exchange='NSE'):
     cap_d30     = r['strike_d30'] * r['lot_size']
     cap_d25     = r['strike_d25'] * r['lot_size']
     cap_5pct    = r['strike_5pct'] * r['lot_size']
-    chart_open  = st.session_state.show_chart.get(chart_key, True)
+    chart_open  = st.session_state.show_chart.get(chart_key, False)
     chart_label = "📉 Hide Chart" if chart_open else "📈 View Chart"
     st.markdown(f"""
     <div class='{card_class}'>
@@ -715,8 +771,7 @@ with tab_nse:
     st.markdown("<div class='config-panel'><div class='config-title'>⚙️ Screener Configuration</div>", unsafe_allow_html=True)
     c1, c2, c3, c4, c5 = st.columns([2, 1.2, 1.5, 1.2, 1])
     with c1:
-        max_capital = st.slider("💰 Max Capital / Lot (Rs.)", 50_000, 2_000_000, 1_500_000, 10_000, format="Rs.%d", key="nse_cap")
-        st.markdown(f"<p style='color:#00d4aa;font-weight:700;font-size:0.82rem;margin-top:-8px'>Rs.{max_capital:,}</p>", unsafe_allow_html=True)
+        max_capital = 999_999_999  # No capital limit
     with c2:
         expiry_days = st.selectbox("📅 Expiry", [7, 15, 30, 45], index=2, format_func=lambda x: f"{x}d", key="nse_exp")
     with c3:
@@ -740,7 +795,7 @@ with tab_nse:
             d = fetch_stock_data(ticker, meta['lot'], max_capital, expiry_days)
             if d and d['wheel_score'] >= min_score:
                 results.append(d)
-                st.session_state.show_chart[d['ticker']] = True
+                st.session_state.show_chart[d['ticker']] = False
         bar.empty()
         st.session_state.nse_results = results
         st.session_state.nse_time    = datetime.now().strftime('%d %b %Y, %I:%M %p')
@@ -748,8 +803,9 @@ with tab_nse:
     if st.session_state.nse_results:
         results = st.session_state.nse_results
         df      = pd.DataFrame(results)
-        tier1   = df[(df['capital_required'] <= max_capital) & (df['wheel_score'] >= 55) & (df['above_200dma'] == True)].sort_values('wheel_score', ascending=False)
-        tier2   = df[~df['ticker'].isin(tier1['ticker'])].sort_values('wheel_score', ascending=False).head(10)
+        filtered_df = apply_filters_and_sort(df, 'nse')
+        tier1   = filtered_df[(filtered_df['wheel_score'] >= 55) & (filtered_df['above_200dma'] == True)]
+        tier2   = filtered_df[~filtered_df['ticker'].isin(tier1['ticker'])].head(10)
         st.markdown(f"<p style='color:#6b8fa8; font-size:0.8rem; margin:0.5rem 0'>Last scan: {st.session_state.nse_time}</p>", unsafe_allow_html=True)
         m1, m2, m3, m4 = st.columns(4)
         for col, lbl, val in zip([m1,m2,m3,m4], ['Scanned','Tier 1','Tier 2','Avg Score'], [len(results), len(tier1), len(tier2), round(df['wheel_score'].mean())]):
@@ -782,8 +838,7 @@ with tab_hk:
     st.markdown("<div class='config-panel'><div class='config-title'>⚙️ Screener Configuration</div>", unsafe_allow_html=True)
     h1, h2, h3 = st.columns([2, 1.5, 1])
     with h1:
-        max_cap_hkd = st.slider("💰 Max Capital / Lot (HKD)", 5_000, 500_000, 50_000, 5_000, format="HK$%d", key="hk_cap")
-        st.markdown(f"<p style='color:#00d4aa;font-weight:700;font-size:0.82rem;margin-top:-8px'>HK${max_cap_hkd:,}</p>", unsafe_allow_html=True)
+        max_cap_hkd = 999_999_999  # No capital limit
     with h2:
         hk_expiry = st.selectbox("📅 Expiry", [7, 15, 30, 45], index=2, format_func=lambda x: f"{x} days", key="hk_exp")
     with h3:
@@ -806,7 +861,7 @@ with tab_hk:
             d = fetch_hk_stock_data(ticker, meta['lot'], max_cap_hkd, hk_expiry)
             if d:
                 hk_res.append(d)
-                st.session_state.show_chart[ticker.replace('.HK','').lstrip('0')] = True
+                st.session_state.show_chart[ticker.replace('.HK','').lstrip('0')] = False
         hk_bar.empty()
         st.session_state.hk_results = hk_res
         st.session_state.hk_time    = datetime.now().strftime('%d %b %Y, %I:%M %p')
@@ -840,8 +895,7 @@ with tab_us:
     st.markdown("<div class='config-panel'><div class='config-title'>⚙️ Screener Configuration</div>", unsafe_allow_html=True)
     u1, u2, u3, u4, u5 = st.columns([2, 1.2, 1.5, 1.2, 1])
     with u1:
-        max_cap_usd = st.slider("💰 Max Capital / Contract (USD)", 500, 100_000, 10_000, 500, format="$%d", key="us_cap")
-        st.markdown(f"<p style='color:#00d4aa;font-weight:700;font-size:0.82rem;margin-top:-8px'>${max_cap_usd:,}</p>", unsafe_allow_html=True)
+        max_cap_usd = 999_999_999  # No capital limit
     with u2:
         us_expiry = st.selectbox("📅 Expiry", [7, 15, 30, 45], index=2, format_func=lambda x: f"{x}d", key="us_exp")
     with u3:
@@ -879,8 +933,9 @@ with tab_us:
     if st.session_state.us_results:
         us_res  = st.session_state.us_results
         us_df   = pd.DataFrame(us_res)
-        tier1_us = us_df[(us_df['capital_required'] <= max_cap_usd) & (us_df['wheel_score'] >= 55) & (us_df['above_200dma'] == True)].sort_values('wheel_score', ascending=False)
-        tier2_us = us_df[~us_df['ticker'].isin(tier1_us['ticker'])].sort_values('wheel_score', ascending=False).head(10)
+        us_df_f  = apply_filters_and_sort(us_df, 'us')
+        tier1_us = us_df_f[(us_df_f['wheel_score'] >= 55) & (us_df_f['above_200dma'] == True)]
+        tier2_us = us_df_f[~us_df_f['ticker'].isin(tier1_us['ticker'])].head(10)
         st.markdown(f"<p style='color:#6b8fa8; font-size:0.8rem; margin:0.5rem 0'>Last scan: {st.session_state.us_time}</p>", unsafe_allow_html=True)
         p1, p2, p3, p4 = st.columns(4)
         for col, lbl, val in zip([p1,p2,p3,p4], ['Scanned','Tier 1','Tier 2','Avg Score'],
@@ -926,8 +981,7 @@ with tab_metals:
     st.markdown("<div class='config-panel'><div class='config-title'>⚙️ Screener Configuration</div>", unsafe_allow_html=True)
     mt1, mt2, mt3, mt4, mt5 = st.columns([2, 1.5, 1.5, 1.2, 1])
     with mt1:
-        max_cap_metals = st.slider("💰 Max Capital / Contract (USD)", 500, 50_000, 10_000, 500, format="$%d", key="metals_cap")
-        st.markdown(f"<p style='color:#00d4aa;font-weight:700;font-size:0.82rem;margin-top:-8px'>${max_cap_metals:,}</p>", unsafe_allow_html=True)
+        max_cap_metals = 999_999_999  # No capital limit
     with mt2:
         metals_expiry = st.selectbox("📅 Expiry", [7, 15, 30, 45], index=2, format_func=lambda x: f"{x}d", key="metals_exp")
     with mt3:
@@ -964,12 +1018,9 @@ with tab_metals:
         metals_res = st.session_state.metals_results
         metals_df  = pd.DataFrame(metals_res)
 
-        tier1_m = metals_df[
-            (metals_df['capital_required'] <= max_cap_metals) &
-            (metals_df['wheel_score'] >= 55) &
-            (metals_df['above_200dma'] == True)
-        ].sort_values('wheel_score', ascending=False)
-        tier2_m = metals_df[~metals_df['ticker'].isin(tier1_m['ticker'])].sort_values('wheel_score', ascending=False)
+        metals_df_f = apply_filters_and_sort(metals_df, 'metals')
+        tier1_m = metals_df_f[(metals_df_f['wheel_score'] >= 55) & (metals_df_f['above_200dma'] == True)]
+        tier2_m = metals_df_f[~metals_df_f['ticker'].isin(tier1_m['ticker'])]
 
         st.markdown(f"<p style='color:#6b8fa8; font-size:0.8rem; margin:0.5rem 0'>Last scan: {st.session_state.metals_time}</p>", unsafe_allow_html=True)
 
