@@ -78,9 +78,8 @@ st.markdown("""
     .stTabs [data-baseweb="tab-panel"] { background: #0d1a26; border: 1px solid #1e3347; border-top: none; border-radius: 0 0 10px 10px; padding: 1.5rem; }
     .stButton > button { background: linear-gradient(135deg, #00d4aa, #0099cc); color: #000 !important; font-weight: 700; font-family: 'Space Mono', monospace; border: none; border-radius: 8px; padding: 0.55rem 1.5rem; font-size: 0.95rem; letter-spacing: 0.5px; width: 100%; }
     .stButton > button:hover { background: linear-gradient(135deg, #00ffcc, #00bbee) !important; }
-    section[data-testid="stSidebar"] { background: #0a1628; }
-    section[data-testid="stSidebar"] * { color: #e8f4f8 !important; }
-    section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 { color: #00d4aa !important; }
+    section[data-testid="stSidebar"] { display: none !important; }
+    .block-container { max-width: 100% !important; padding-left: 2rem !important; padding-right: 2rem !important; }
     .affiliate-box { background: #111e2d; border: 1px solid #1e3347; border-radius: 10px; padding: 1rem; text-align: center; }
     .disclaimer { color: #3a5060; font-size: 0.72rem; text-align: center; margin-top: 2rem; padding: 1rem; border-top: 1px solid #1e3347; }
     .block-container { padding-top: 1rem !important; }
@@ -150,6 +149,46 @@ HK_STOCKS = {
     '0823.HK': {'lot': 1000, 'sector': 'REIT', 'name': 'Link REIT'},
     '9888.HK': {'lot': 150,  'sector': 'Tech', 'name': 'Baidu'},
     '1810.HK': {'lot': 1000, 'sector': 'Tech', 'name': 'Xiaomi'},
+}
+
+# ── US Stock Universe ────────────────────────────────────────────────────────
+US_STOCKS = {
+    # Tech
+    'AAPL':  {'lot': 1, 'sector': 'Tech'},
+    'MSFT':  {'lot': 1, 'sector': 'Tech'},
+    'GOOGL': {'lot': 1, 'sector': 'Tech'},
+    'META':  {'lot': 1, 'sector': 'Tech'},
+    'NVDA':  {'lot': 1, 'sector': 'Tech'},
+    'AMD':   {'lot': 1, 'sector': 'Tech'},
+    'INTC':  {'lot': 1, 'sector': 'Tech'},
+    'CRM':   {'lot': 1, 'sector': 'Tech'},
+    # Finance
+    'JPM':   {'lot': 1, 'sector': 'Finance'},
+    'BAC':   {'lot': 1, 'sector': 'Finance'},
+    'GS':    {'lot': 1, 'sector': 'Finance'},
+    'MS':    {'lot': 1, 'sector': 'Finance'},
+    'WFC':   {'lot': 1, 'sector': 'Finance'},
+    # Energy
+    'XOM':   {'lot': 1, 'sector': 'Energy'},
+    'CVX':   {'lot': 1, 'sector': 'Energy'},
+    'ET':    {'lot': 1, 'sector': 'Energy'},
+    'OXY':   {'lot': 1, 'sector': 'Energy'},
+    # ETFs (great for wheel)
+    'SPY':   {'lot': 1, 'sector': 'ETF'},
+    'QQQ':   {'lot': 1, 'sector': 'ETF'},
+    'IWM':   {'lot': 1, 'sector': 'ETF'},
+    'SLV':   {'lot': 1, 'sector': 'ETF'},
+    'GLD':   {'lot': 1, 'sector': 'ETF'},
+    # Consumer
+    'AMZN':  {'lot': 1, 'sector': 'Consumer'},
+    'WMT':   {'lot': 1, 'sector': 'Consumer'},
+    'KO':    {'lot': 1, 'sector': 'Consumer'},
+    'PG':    {'lot': 1, 'sector': 'Consumer'},
+    # Healthcare
+    'JNJ':   {'lot': 1, 'sector': 'Healthcare'},
+    'PFE':   {'lot': 1, 'sector': 'Healthcare'},
+    # Telecom
+    'T':     {'lot': 1, 'sector': 'Telecom'},
 }
 
 # ── Shared Score Calculator ───────────────────────────────────────────────────
@@ -244,8 +283,46 @@ def fetch_hk_stock_data(ticker, lot_size, max_capital_hkd, expiry_days=30):
         }
     except: return None
 
+# ── US Data Fetcher ──────────────────────────────────────────────────────────
+def fetch_us_stock_data(ticker, max_capital_usd, expiry_days=30):
+    try:
+        stock = yf.Ticker(ticker)
+        hist  = stock.history(period='1y')
+        if len(hist) < 50: return None
+        st.session_state.hist_data[ticker] = hist
+        info          = stock.info
+        current_price = hist['Close'].iloc[-1]
+        ma50   = hist['Close'].rolling(50).mean().iloc[-1]
+        ma200  = hist['Close'].rolling(200).mean().iloc[-1] if len(hist) >= 200 else None
+        above_50dma  = bool(current_price > ma50)
+        above_200dma = bool(current_price > ma200) if ma200 else None
+        high_52w      = hist['High'].max()
+        pct_from_high = ((high_52w - current_price) / high_52w) * 100
+        hv_30  = hist['Close'].pct_change().dropna()[-30:].std() * np.sqrt(252) * 100
+        annual_div     = info.get('dividendYield') or 0
+        dividend_yield = min(annual_div * 100, 20.0)
+        # US options: 100 shares per contract, strike rounded to nearest $0.50
+        sigma      = hv_30 / 100; sqrtT = np.sqrt(expiry_days / 365)
+        strike_d30  = round(current_price * np.exp(-0.524 * sigma * sqrtT) * 2) / 2
+        strike_d25  = round(current_price * np.exp(-0.674 * sigma * sqrtT) * 2) / 2
+        strike_5pct = round(current_price * 0.95 * 2) / 2
+        capital_required = strike_5pct * 100  # 1 contract = 100 shares
+        score = calc_wheel_score(above_50dma, above_200dma, pct_from_high, hv_30,
+                                 dividend_yield, capital_required, max_capital_usd)
+        return {
+            'ticker': ticker, 'name': info.get('shortName', ticker)[:28],
+            'sector': US_STOCKS[ticker]['sector'], 'lot_size': 100,
+            'current_price': round(current_price, 2),
+            'strike_d30': strike_d30, 'strike_d25': strike_d25, 'strike_5pct': strike_5pct,
+            'capital_required': capital_required,
+            'above_50dma': above_50dma, 'above_200dma': above_200dma,
+            'pct_from_high': round(pct_from_high, 1), 'hv_30': round(hv_30, 1),
+            'dividend_yield': round(dividend_yield, 2), 'wheel_score': score, 'currency': '$',
+        }
+    except: return None
+
 # ── Session State ─────────────────────────────────────────────────────────────
-for key, val in {'show_chart': {}, 'hist_data': {}, 'nse_results': None, 'nse_time': None, 'hk_results': None, 'hk_time': None}.items():
+for key, val in {'show_chart': {}, 'hist_data': {}, 'nse_results': None, 'nse_time': None, 'hk_results': None, 'hk_time': None, 'us_results': None, 'us_time': None}.items():
     if key not in st.session_state:
         st.session_state[key] = val
 
@@ -369,28 +446,8 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ── Sidebar — Affiliate only ──────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("### 🤝 Open a Demat Account")
-    st.markdown("""
-    <div class='affiliate-box'>
-        <p style='color:#a0b4c0; font-size:0.8rem; margin:0 0 10px 0'>Trusted brokers for options trading:</p>
-        <a href='https://zerodha.com/open-account?c=SS1428' target='_blank'
-           style='color:#00d4aa; text-decoration:none; font-weight:600; display:block; margin:8px 0'>
-           🟢 Zerodha — Open Account</a>
-        <a href='https://groww.in' target='_blank'
-           style='color:#00d4aa; text-decoration:none; font-weight:600; display:block; margin:8px 0'>
-           🟢 Groww — Open Account</a>
-        <a href='https://www.angelone.in' target='_blank'
-           style='color:#00d4aa; text-decoration:none; font-weight:600; display:block; margin:8px 0'>
-           🟢 Angel One — Open Account</a>
-    </div>
-    """, unsafe_allow_html=True)
-    st.markdown("---")
-    st.markdown("<div style='color:#3a5060; font-size:0.72rem; text-align:center'>⚠️ Not SEBI registered.<br>For educational purposes only.<br>Options trading involves risk of loss.</div>", unsafe_allow_html=True)
-
 # ── TABS ──────────────────────────────────────────────────────────────────────
-tab_nse, tab_hk = st.tabs(["🇮🇳  NSE Screener", "🇭🇰  HK Screener"])
+tab_nse, tab_hk, tab_us = st.tabs(["🇮🇳  NSE Screener", "🇭🇰  HK Screener", "🇺🇸  US Screener"])
 
 # ── TAB 1: NSE ────────────────────────────────────────────────────────────────
 with tab_nse:
@@ -515,6 +572,81 @@ with tab_hk:
             <p style='font-family:Space Mono,monospace; color:#6b8fa8; margin:1rem 0 0.5rem'>Configure & Run Scan</p>
             <p style='font-size:0.85rem'>Set your HKD capital limit above and click <strong style='color:#00d4aa'>Run Scan</strong></p>
             <p style='font-size:0.78rem; margin-top:0.5rem'>Link REIT · Baidu · Xiaomi · Charts with RSI + BB</p>
+        </div>""", unsafe_allow_html=True)
+
+# ── TAB 3: US ─────────────────────────────────────────────────────────────────
+with tab_us:
+    st.markdown("<div class='config-panel'><div class='config-title'>⚙️ Screener Configuration</div>", unsafe_allow_html=True)
+    u1, u2, u3, u4, u5 = st.columns([2, 1.2, 1.5, 1.2, 1])
+    with u1:
+        max_cap_usd = st.slider("💰 Max Capital / Contract (USD)", 500, 100_000, 10_000, 500, format="$%d", key="us_cap")
+        st.markdown(f"<p style='color:#00d4aa;font-weight:700;font-size:0.82rem;margin-top:-8px'>${max_cap_usd:,}</p>", unsafe_allow_html=True)
+    with u2:
+        us_expiry = st.selectbox("📅 Expiry", [7, 15, 30, 45], index=2, format_func=lambda x: f"{x}d", key="us_exp")
+    with u3:
+        us_sectors = st.multiselect("🏭 Sectors", sorted(set(v['sector'] for v in US_STOCKS.values())), default=[], placeholder="All", key="us_sec")
+    with u4:
+        us_min_score = st.slider("🎯 Min Score", 0, 100, 40, 5, key="us_score")
+        st.markdown(f"<p style='color:#00d4aa;font-weight:700;font-size:0.82rem;margin-top:-8px'>{us_min_score}/100</p>", unsafe_allow_html=True)
+    with u5:
+        st.markdown("<br>", unsafe_allow_html=True)
+        run_us = st.button("🚀 Run Scan", key="run_us")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style='display:flex; gap:8px; flex-wrap:wrap; margin-bottom:1rem; font-size:0.78rem'>
+        <span class='tag tag-blue' style='padding:3px 8px'>💡 1 contract = 100 shares · Capital in USD</span>
+        <span class='tag tag-green' style='padding:3px 8px'>Weekly + Monthly expiries available</span>
+        <span class='tag tag-yellow' style='padding:3px 8px'>ETFs (SPY, QQQ, SLV) great for wheel</span>
+    </div>""", unsafe_allow_html=True)
+
+    if run_us:
+        st.session_state.us_results = None
+        filtered_us = {k: v for k, v in US_STOCKS.items() if not us_sectors or v['sector'] in us_sectors}
+        us_bar = st.progress(0, text="🔍 Scanning US stocks...")
+        us_res = []
+        for i, (ticker, meta) in enumerate(filtered_us.items()):
+            us_bar.progress((i+1)/len(filtered_us), text=f"🔍 {ticker} ({i+1}/{len(filtered_us)})")
+            d = fetch_us_stock_data(ticker, max_cap_usd, us_expiry)
+            if d and d['wheel_score'] >= us_min_score:
+                us_res.append(d)
+                st.session_state.show_chart[ticker] = True
+        us_bar.empty()
+        st.session_state.us_results = us_res
+        st.session_state.us_time = datetime.now().strftime('%d %b %Y, %I:%M %p')
+
+    if st.session_state.us_results:
+        us_res  = st.session_state.us_results
+        us_df   = pd.DataFrame(us_res)
+        tier1_us = us_df[(us_df['capital_required'] <= max_cap_usd) & (us_df['wheel_score'] >= 55) & (us_df['above_200dma'] == True)].sort_values('wheel_score', ascending=False)
+        tier2_us = us_df[~us_df['ticker'].isin(tier1_us['ticker'])].sort_values('wheel_score', ascending=False).head(10)
+        st.markdown(f"<p style='color:#6b8fa8; font-size:0.8rem; margin:0.5rem 0'>Last scan: {st.session_state.us_time}</p>", unsafe_allow_html=True)
+        p1, p2, p3, p4 = st.columns(4)
+        for col, lbl, val in zip([p1,p2,p3,p4], ['Scanned','Tier 1','Tier 2','Avg Score'],
+                                  [len(us_res), len(tier1_us), len(tier2_us), round(us_df['wheel_score'].mean())]):
+            col.markdown(f"<div class='metric-box'><div class='label'>{lbl}</div><div class='value'>{val}</div></div>", unsafe_allow_html=True)
+        st.markdown("<div class='section-head'><span>🏆 Tier 1 — Best US CSP Candidates</span></div>", unsafe_allow_html=True)
+        if tier1_us.empty:
+            st.info("No Tier 1 stocks. Try increasing capital limit or lowering min score.")
+        for _, row in tier1_us.iterrows():
+            r = row.to_dict(); r['_tier'] = 1; render_card(r, r['ticker'], 'NASDAQ')
+        st.markdown("<div class='section-head'><span>👀 Tier 2 — Watchlist</span></div>", unsafe_allow_html=True)
+        for _, row in tier2_us.iterrows():
+            r = row.to_dict(); r['_tier'] = 2; render_card(r, r['ticker'], 'NASDAQ')
+        st.markdown("<div class='section-head'><span>📊 Sector Summary</span></div>", unsafe_allow_html=True)
+        us_sec = us_df.groupby('sector').agg(Stocks=('ticker','count'), Avg_Score=('wheel_score','mean'), Avg_HV30=('hv_30','mean')).reset_index().sort_values('Avg_Score', ascending=False)
+        us_sec['Avg_Score'] = us_sec['Avg_Score'].round(0).astype(int)
+        us_sec['Avg_HV30']  = us_sec['Avg_HV30'].round(1)
+        st.dataframe(us_sec, use_container_width=True, hide_index=True)
+        st.download_button("📥 Download Results (CSV)", data=us_df.sort_values('wheel_score', ascending=False).to_csv(index=False),
+                           file_name=f"us_wheel_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv", use_container_width=True)
+    else:
+        st.markdown("""
+        <div style='text-align:center; padding:4rem 2rem; color:#3a5060'>
+            <div style='font-size:3.5rem'>🇺🇸</div>
+            <p style='font-family:Space Mono,monospace; color:#6b8fa8; margin:1rem 0 0.5rem'>Configure & Run Scan</p>
+            <p style='font-size:0.85rem'>Set your USD capital limit and click <strong style='color:#00d4aa'>Run Scan</strong></p>
+            <p style='font-size:0.78rem; margin-top:0.5rem'>30 stocks · Tech · Finance · Energy · ETFs · Healthcare</p>
         </div>""", unsafe_allow_html=True)
 
 # ── Disclaimer ────────────────────────────────────────────────────────────────
