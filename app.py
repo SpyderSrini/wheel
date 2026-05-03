@@ -1255,12 +1255,6 @@ with tab_metals:
 
 # ── TAB 5: WEALTH BUILDER ────────────────────────────────────────────────────
 with tab_wb:
-    st.markdown("""
-    <div class='main-header' style='background:linear-gradient(135deg,#0f1f2e,#1a3a2e,#0f2537);margin-bottom:1.5rem'>
-        <h1 style='color:#ffd700'>💎 WEALTH BUILDER SCREENER</h1>
-        <p style='color:#a0c4b0'>Claude's curated universe · Dividend + Premium double income strategy · India + HK + USA</p>
-    </div>""", unsafe_allow_html=True)
-
     # Philosophy banner
     with st.expander("💡 The Wealth Builder Philosophy — Why these stocks?", expanded=False):
         ph1, ph2, ph3 = st.columns(3)
@@ -1288,15 +1282,15 @@ with tab_wb:
 
     # Config
     st.markdown("<div class='config-panel'><div class='config-title'>⚙️ Screener Configuration</div>", unsafe_allow_html=True)
-    wb1, wb2, wb3, wb4 = st.columns([1.5, 1.5, 1.5, 1])
+    wb1, wb2, wb3, wb4 = st.columns([1.5, 1.5, 1, 0.8])
     with wb1:
         wb_regions = st.multiselect("🌍 Regions", ['India','HK','USA'], default=[], placeholder="All regions", key="wb_reg")
     with wb2:
         wb_themes  = st.multiselect("🏭 Themes", sorted(set(v['theme'] for v in WB_STOCKS.values())), default=[], placeholder="All themes", key="wb_theme")
     with wb3:
-        wb_expiry  = st.selectbox("📅 Expiry Target", [7,15,30,45], index=2, format_func=lambda x: f"{x} days", key="wb_exp")
+        wb_expiry  = st.selectbox("📅 Expiry", [7,15,30,45], index=2, format_func=lambda x: f"{x} days", key="wb_exp")
     with wb4:
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("<div style='margin-top:1.85rem'></div>", unsafe_allow_html=True)
         run_wb = st.button("🚀 Run Scan", key="run_wb", use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
