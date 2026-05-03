@@ -1498,54 +1498,73 @@ with tab_wb:
         </div>""", unsafe_allow_html=True)
 
 # ── Visitor Counter ──────────────────────────────────────────────────────────
-def get_visitor_count():
-    """Hit counter using countapi.xyz — free, no signup"""
-    try:
-        # Increment counter on each visit
-        res = requests.get(
-            "https://api.countapi.xyz/hit/nse-wheel-screener-srini/visits",
-            timeout=3
-        )
-        if res.status_code == 200:
-            total = res.json().get('value', 0)
-            return total
-    except:
-        pass
-    return None
+import os, json as _json
+from datetime import datetime, timedelta
 
-# Only count once per session
+COUNTER_FILE = "/tmp/visitor_log.json"
+
+def load_visits():
+    try:
+        if os.path.exists(COUNTER_FILE):
+            return _json.loads(open(COUNTER_FILE).read())
+    except: pass
+    return {"total": 0, "log": []}
+
+def save_visits(data):
+    try:
+        open(COUNTER_FILE, "w").write(_json.dumps(data))
+    except: pass
+
+def record_visit():
+    data  = load_visits()
+    now   = datetime.now().isoformat()
+    data["total"] += 1
+    data["log"].append(now)
+    # Keep only last 10000 entries
+    data["log"] = data["log"][-10000:]
+    save_visits(data)
+    return data
+
+def count_last_24h(log):
+    cutoff = datetime.now() - timedelta(hours=24)
+    return sum(1 for t in log if datetime.fromisoformat(t) > cutoff)
+
+# Record visit once per session
 if 'visitor_counted' not in st.session_state:
     st.session_state.visitor_counted = True
-    st.session_state.visitor_total   = get_visitor_count()
+    visit_data = record_visit()
+else:
+    visit_data = load_visits()
 
-total_visits = st.session_state.get('visitor_total')
+total_visits  = visit_data.get("total", 0)
+visits_24h    = count_last_24h(visit_data.get("log", []))
 
-if total_visits:
-    st.markdown(f"""
-    <div style='text-align:center; padding:1.5rem 1rem 0.5rem; margin-top:2rem'>
-        <div style='display:inline-flex; align-items:center; gap:16px; flex-wrap:wrap; justify-content:center;
-             background:#0d1a26; border:1px solid #1e3347; border-radius:12px; padding:0.8rem 2rem'>
-            <div style='text-align:center'>
-                <div style='color:#6b8fa8; font-size:0.7rem; text-transform:uppercase; letter-spacing:1px'>Total Visits</div>
-                <div style='color:#00d4aa; font-family:Space Mono,monospace; font-size:1.6rem; font-weight:700'>
-                    {total_visits:,}
-                </div>
-            </div>
-            <div style='width:1px; height:40px; background:#1e3347'></div>
-            <div style='text-align:center'>
-                <div style='color:#6b8fa8; font-size:0.7rem; text-transform:uppercase; letter-spacing:1px'>Last Updated</div>
-                <div style='color:#a0b4c0; font-size:0.85rem; font-weight:600'>
-                    {datetime.now().strftime('%d %b %Y, %I:%M %p')}
-                </div>
-            </div>
-            <div style='width:1px; height:40px; background:#1e3347'></div>
-            <div style='text-align:center'>
-                <div style='color:#6b8fa8; font-size:0.7rem; text-transform:uppercase; letter-spacing:1px'>Status</div>
-                <div style='color:#00d4aa; font-size:0.85rem; font-weight:600'>🟢 Live</div>
-            </div>
+st.markdown(f"""
+<div style='text-align:center; padding:1.5rem 1rem 0.5rem; margin-top:2rem'>
+    <div style='display:inline-flex; align-items:center; gap:0; flex-wrap:wrap; justify-content:center;
+         background:#0d1a26; border:1px solid #1e3347; border-radius:12px; padding:0.8rem 2.5rem; gap:2rem'>
+        <div style='text-align:center'>
+            <div style='color:#6b8fa8; font-size:0.7rem; text-transform:uppercase; letter-spacing:1px'>Total Visits</div>
+            <div style='color:#00d4aa; font-family:Space Mono,monospace; font-size:1.8rem; font-weight:700'>{total_visits:,}</div>
+        </div>
+        <div style='width:1px; height:40px; background:#1e3347'></div>
+        <div style='text-align:center'>
+            <div style='color:#6b8fa8; font-size:0.7rem; text-transform:uppercase; letter-spacing:1px'>Last 24 Hours</div>
+            <div style='color:#f5a623; font-family:Space Mono,monospace; font-size:1.8rem; font-weight:700'>{visits_24h:,}</div>
+        </div>
+        <div style='width:1px; height:40px; background:#1e3347'></div>
+        <div style='text-align:center'>
+            <div style='color:#6b8fa8; font-size:0.7rem; text-transform:uppercase; letter-spacing:1px'>Last Visit</div>
+            <div style='color:#a0b4c0; font-size:0.82rem; font-weight:600'>{datetime.now().strftime('%d %b %Y')}<br>{datetime.now().strftime('%I:%M %p')}</div>
+        </div>
+        <div style='width:1px; height:40px; background:#1e3347'></div>
+        <div style='text-align:center'>
+            <div style='color:#6b8fa8; font-size:0.7rem; text-transform:uppercase; letter-spacing:1px'>Status</div>
+            <div style='color:#00d4aa; font-size:0.9rem; font-weight:700'>🟢 Live</div>
         </div>
     </div>
-    """, unsafe_allow_html=True)
+</div>
+""", unsafe_allow_html=True)
 
 # ── Disclaimer ────────────────────────────────────────────────────────────────
 st.markdown("""
