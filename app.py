@@ -12,6 +12,8 @@ from datetime import datetime
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import json
+import requests
+from datetime import datetime, timedelta
 
 # ── Page Config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -1494,6 +1496,56 @@ with tab_wb:
                 <span class='tag tag-yellow' style='padding:5px 12px'>🌍 Global diversification</span>
             </div>
         </div>""", unsafe_allow_html=True)
+
+# ── Visitor Counter ──────────────────────────────────────────────────────────
+def get_visitor_count():
+    """Hit counter using countapi.xyz — free, no signup"""
+    try:
+        # Increment counter on each visit
+        res = requests.get(
+            "https://api.countapi.xyz/hit/nse-wheel-screener-srini/visits",
+            timeout=3
+        )
+        if res.status_code == 200:
+            total = res.json().get('value', 0)
+            return total
+    except:
+        pass
+    return None
+
+# Only count once per session
+if 'visitor_counted' not in st.session_state:
+    st.session_state.visitor_counted = True
+    st.session_state.visitor_total   = get_visitor_count()
+
+total_visits = st.session_state.get('visitor_total')
+
+if total_visits:
+    st.markdown(f"""
+    <div style='text-align:center; padding:1.5rem 1rem 0.5rem; margin-top:2rem'>
+        <div style='display:inline-flex; align-items:center; gap:16px; flex-wrap:wrap; justify-content:center;
+             background:#0d1a26; border:1px solid #1e3347; border-radius:12px; padding:0.8rem 2rem'>
+            <div style='text-align:center'>
+                <div style='color:#6b8fa8; font-size:0.7rem; text-transform:uppercase; letter-spacing:1px'>Total Visits</div>
+                <div style='color:#00d4aa; font-family:Space Mono,monospace; font-size:1.6rem; font-weight:700'>
+                    {total_visits:,}
+                </div>
+            </div>
+            <div style='width:1px; height:40px; background:#1e3347'></div>
+            <div style='text-align:center'>
+                <div style='color:#6b8fa8; font-size:0.7rem; text-transform:uppercase; letter-spacing:1px'>Last Updated</div>
+                <div style='color:#a0b4c0; font-size:0.85rem; font-weight:600'>
+                    {datetime.now().strftime('%d %b %Y, %I:%M %p')}
+                </div>
+            </div>
+            <div style='width:1px; height:40px; background:#1e3347'></div>
+            <div style='text-align:center'>
+                <div style='color:#6b8fa8; font-size:0.7rem; text-transform:uppercase; letter-spacing:1px'>Status</div>
+                <div style='color:#00d4aa; font-size:0.85rem; font-weight:600'>🟢 Live</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ── Disclaimer ────────────────────────────────────────────────────────────────
 st.markdown("""
