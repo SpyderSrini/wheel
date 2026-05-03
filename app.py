@@ -1340,17 +1340,25 @@ with tab_wb:
         reg_all, reg_in, reg_hk, reg_us = st.tabs(["🌍 All", "🇮🇳 India", "🇭🇰 Hong Kong", "🇺🇸 USA"])
 
         def render_wb_card(r, tab_id='all'):
+            import math
             region_color = REGION_COLORS.get(r['region'], '#a0b4c0')
             theme_icon   = THEME_ICONS.get(r['theme'], '📌')
             score_cls    = "score-high" if r['wheel_score'] >= 65 else "score-mid"
             trend_tag    = "<span class='tag tag-green'>📈 Above 200DMA</span>" if r['above_200dma'] else                            "<span class='tag tag-yellow'>〰️ Above 50DMA</span>" if r['above_50dma'] else                            "<span class='tag tag-red'>📉 Below MAs</span>"
-            div_tag = f"<span class='tag tag-blue'>💰 Div {r['dividend_yield']:.1f}%</span>" if r['dividend_yield'] > 0 else ""
-            upside_tag = f"<span class='tag' style='background:#8884d822;color:#8884d8'>📈 Analyst +{r['analyst_upside']:.0f}%</span>" if r['analyst_upside'] > 5 else ""
-            chart_key   = r['ticker']
-            chart_open  = st.session_state.show_chart.get(chart_key, False)
-            chart_label = "📉 Hide Chart" if chart_open else "📈 View Chart"
+            div_tag    = f"<span class='tag tag-blue'>💰 Div {r['dividend_yield']:.1f}%</span>" if r['dividend_yield'] > 0 else ""
+            upside_tag = f"<span class='tag' style='background:#8884d822;color:#8884d8'>📈 Analyst +{r['analyst_upside']:.0f}%</span>" if r.get('analyst_upside', 0) > 5 else ""
+            chart_key  = r['ticker']
+            chart_open = st.session_state.show_chart.get(chart_key, False)
+            chart_label= "📉 Hide Chart" if chart_open else "📈 View Chart"
 
-            st.markdown(f"""
+            # Pre-compute optional fields safely (handle None and NaN)
+            def safe_val(v): return v if (v is not None and not (isinstance(v, float) and math.isnan(v))) else None
+            margin_val = safe_val(r.get('profit_margins'))
+            beta_val   = safe_val(r.get('beta'))
+            margin_tag = f"<span>📊 Margin: {margin_val:.1f}%</span>" if margin_val else ""
+            beta_tag   = f"<span>⚡ Beta: {beta_val:.2f}</span>" if beta_val else ""
+
+            html = f"""
             <div style='background:linear-gradient(135deg,#0d1a26,#0d1f18);
                  border:1px solid {region_color}44; border-left:4px solid {region_color};
                  border-radius:10px; padding:1.2rem 1.5rem; margin-bottom:1rem'>
@@ -1370,8 +1378,8 @@ with tab_wb:
                     <span>💵 CMP: <strong style='color:#fff'>{r['currency']}{r['current_price']:,.2f}</strong></span>
                     <span>📉 From 52W High: <strong style='color:#f5a623'>-{r['pct_from_high']:.1f}%</strong></span>
                     <span>🌡️ HV30: {r['hv_30']:.1f}%</span>
-                    {'<span>📊 Margin: ' + str(r['profit_margins']) + '%</span>' if r['profit_margins'] else ''}
-                    {'<span>⚡ Beta: ' + str(r['beta']) + '</span>' if r['beta'] else ''}
+                    {margin_tag}
+                    {beta_tag}
                 </div>
                 <div style='margin-top:6px'>{trend_tag}{div_tag}{upside_tag}</div>
                 <div class='strike-box' style='margin-top:0.8rem'>
@@ -1391,7 +1399,8 @@ with tab_wb:
                         <span class='strike-value'>{r['currency']}{r['strike_5pct']:,.2f}</span>
                     </div>
                 </div>
-            </div>""", unsafe_allow_html=True)
+            </div>"""
+            st.markdown(html, unsafe_allow_html=True)
 
             cb1, cb2 = st.columns([1,1])
             with cb1:
