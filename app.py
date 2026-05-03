@@ -1341,65 +1341,80 @@ with tab_wb:
 
         def render_wb_card(r, tab_id='all'):
             import math
+            # ── helper ────────────────────────────────────────────────────
+            def sv(v):
+                return v if (v is not None and not (isinstance(v, float) and math.isnan(v))) else None
+
             region_color = REGION_COLORS.get(r['region'], '#a0b4c0')
             theme_icon   = THEME_ICONS.get(r['theme'], '📌')
-            score_cls    = "score-high" if r['wheel_score'] >= 65 else "score-mid"
-            trend_tag    = "<span class='tag tag-green'>📈 Above 200DMA</span>" if r['above_200dma'] else                            "<span class='tag tag-yellow'>〰️ Above 50DMA</span>" if r['above_50dma'] else                            "<span class='tag tag-red'>📉 Below MAs</span>"
-            div_tag    = f"<span class='tag tag-blue'>💰 Div {r['dividend_yield']:.1f}%</span>" if r['dividend_yield'] > 0 else ""
-            upside_tag = f"<span class='tag' style='background:#8884d822;color:#8884d8'>📈 Analyst +{r['analyst_upside']:.0f}%</span>" if r.get('analyst_upside', 0) > 5 else ""
-            chart_key  = r['ticker']
-            chart_open = st.session_state.show_chart.get(chart_key, False)
-            chart_label= "📉 Hide Chart" if chart_open else "📈 View Chart"
+            score_bg     = '#00d4aa22' if r['wheel_score'] >= 65 else '#f5a62322'
+            score_col    = '#00d4aa'   if r['wheel_score'] >= 65 else '#f5a623'
+            chart_key    = r['ticker']
+            chart_open   = st.session_state.show_chart.get(chart_key, False)
+            chart_label  = "📉 Hide Chart" if chart_open else "📈 View Chart"
 
-            # Pre-compute optional fields safely (handle None and NaN)
-            def safe_val(v): return v if (v is not None and not (isinstance(v, float) and math.isnan(v))) else None
-            margin_val = safe_val(r.get('profit_margins'))
-            beta_val   = safe_val(r.get('beta'))
-            margin_tag = f"<span>📊 Margin: {margin_val:.1f}%</span>" if margin_val else ""
-            beta_tag   = f"<span>⚡ Beta: {beta_val:.2f}</span>" if beta_val else ""
+            # ── pre-build all dynamic snippets ────────────────────────────
+            tag_s  = "display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.72rem;margin-right:4px;"
+            if r['above_200dma']:
+                trend_tag = f"<span style='{tag_s}background:#00d4aa22;color:#00d4aa;border:1px solid #00d4aa44'>📈 Above 200DMA</span>"
+            elif r['above_50dma']:
+                trend_tag = f"<span style='{tag_s}background:#f5a62322;color:#f5a623;border:1px solid #f5a62344'>〰️ Above 50DMA</span>"
+            else:
+                trend_tag = f"<span style='{tag_s}background:#ff4b4b22;color:#ff4b4b;border:1px solid #ff4b4b44'>📉 Below MAs</span>"
 
-            html = f"""
-            <div style='background:linear-gradient(135deg,#0d1a26,#0d1f18);
-                 border:1px solid {region_color}44; border-left:4px solid {region_color};
-                 border-radius:10px; padding:1.2rem 1.5rem; margin-bottom:1rem'>
-                <div style='display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px'>
-                    <div style='display:flex; align-items:center; gap:10px; flex-wrap:wrap'>
-                        <span style='font-family:Space Mono,monospace; font-size:1.2rem; font-weight:700; color:#fff'>{r['ticker']}</span>
-                        <span style='color:#6b8fa8; font-size:0.82rem'>{r['name']}</span>
-                        <span style='background:{region_color}22; color:{region_color}; border:1px solid {region_color}44;
-                              padding:2px 8px; border-radius:4px; font-size:0.72rem; font-weight:600'>{r['region']} · {r['exchange']}</span>
-                    </div>
-                    <span class='score-badge {score_cls}'>💎 {r['wheel_score']}/100</span>
-                </div>
-                <div style='margin-top:6px; color:#7fb3a0; font-size:0.8rem; font-style:italic'>
-                    {theme_icon} {r['theme']} · {r['why']}
-                </div>
-                <div style='margin-top:8px; display:flex; gap:12px; flex-wrap:wrap; font-size:0.84rem; color:#a0b4c0'>
-                    <span>💵 CMP: <strong style='color:#fff'>{r['currency']}{r['current_price']:,.2f}</strong></span>
-                    <span>📉 From 52W High: <strong style='color:#f5a623'>-{r['pct_from_high']:.1f}%</strong></span>
-                    <span>🌡️ HV30: {r['hv_30']:.1f}%</span>
-                    {margin_tag}
-                    {beta_tag}
-                </div>
-                <div style='margin-top:6px'>{trend_tag}{div_tag}{upside_tag}</div>
-                <div class='strike-box' style='margin-top:0.8rem'>
-                    <div style='color:#6b8fa8; font-size:0.72rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px'>
-                        CSP Strike Suggestions · {wb_expiry}-day expiry
-                    </div>
-                    <div class='strike-row'>
-                        <span class='strike-label'>🟢 Delta ~0.30 (Aggressive)</span>
-                        <span class='strike-value'>{r['currency']}{r['strike_d30']:,.2f}</span>
-                    </div>
-                    <div class='strike-row'>
-                        <span class='strike-label'>🟡 Delta ~0.25 (Moderate)</span>
-                        <span class='strike-value'>{r['currency']}{r['strike_d25']:,.2f}</span>
-                    </div>
-                    <div class='strike-row'>
-                        <span class='strike-label'>🔵 5% OTM (Conservative)</span>
-                        <span class='strike-value'>{r['currency']}{r['strike_5pct']:,.2f}</span>
-                    </div>
-                </div>
-            </div>"""
+            div_v   = sv(r.get('dividend_yield'))
+            div_tag = f"<span style='{tag_s}background:#4b9fff22;color:#4b9fff;border:1px solid #4b9fff44'>💰 Div {div_v:.1f}%</span>" if div_v and div_v > 0 else ""
+
+            up_v    = sv(r.get('analyst_upside', 0)) or 0
+            up_tag  = f"<span style='{tag_s}background:#8884d822;color:#8884d8;border:1px solid #8884d844'>📈 Analyst +{up_v:.0f}%</span>" if up_v > 5 else ""
+
+            mg_v    = sv(r.get('profit_margins'))
+            mg_tag  = f"<span>📊 {mg_v:.1f}%</span>" if mg_v else ""
+
+            bt_v    = sv(r.get('beta'))
+            bt_tag  = f"<span>⚡ β {bt_v:.2f}</span>" if bt_v else ""
+
+            # ── inline-style strike rows ───────────────────────────────────
+            row_s   = "display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:0.85rem;"
+            lbl_s   = "color:#6b8fa8;"
+            val_s   = "color:#fff;font-family:Space Mono,monospace;font-weight:700;"
+
+            html = (
+                "<div style='background:linear-gradient(135deg,#0d1a26,#0d1f18);"
+                f"border:1px solid {region_color}44;border-left:4px solid {region_color};"
+                "border-radius:10px;padding:1.2rem 1.5rem;margin-bottom:1rem'>"
+
+                "<div style='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px'>"
+                "<div style='display:flex;align-items:center;gap:10px;flex-wrap:wrap'>"
+                f"<span style='font-family:Space Mono,monospace;font-size:1.2rem;font-weight:700;color:#fff'>{r['ticker']}</span>"
+                f"<span style='color:#6b8fa8;font-size:0.82rem'>{r['name']}</span>"
+                f"<span style='background:{region_color}22;color:{region_color};border:1px solid {region_color}44;"
+                f"padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:600'>{r['region']} · {r['exchange']}</span>"
+                "</div>"
+                f"<span style='background:{score_bg};color:{score_col};border:1px solid {score_col}44;"
+                f"padding:2px 12px;border-radius:20px;font-size:0.8rem;font-weight:600'>💎 {r['wheel_score']}/100</span>"
+                "</div>"
+
+                f"<div style='margin-top:6px;color:#7fb3a0;font-size:0.8rem;font-style:italic'>{theme_icon} {r['theme']} · {r['why']}</div>"
+
+                "<div style='margin-top:8px;display:flex;gap:12px;flex-wrap:wrap;font-size:0.84rem;color:#a0b4c0'>"
+                f"<span>💵 CMP: <strong style='color:#fff'>{r['currency']}{r['current_price']:,.2f}</strong></span>"
+                f"<span>📉 <strong style='color:#f5a623'>-{r['pct_from_high']:.1f}%</strong> from 52W High</span>"
+                f"<span>🌡️ HV30: {r['hv_30']:.1f}%</span>"
+                f"{mg_tag}{bt_tag}"
+                "</div>"
+
+                f"<div style='margin-top:6px'>{trend_tag}{div_tag}{up_tag}</div>"
+
+                "<div style='background:#0d1a26;border:1px solid #1e3347;border-radius:8px;padding:0.8rem;margin-top:0.8rem'>"
+                "<div style='color:#6b8fa8;font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px'>"
+                f"CSP Strike Suggestions · {wb_expiry}-day expiry</div>"
+                f"<div style='{row_s}'><span style='{lbl_s}'>🟢 Delta ~0.30 (Aggressive)</span><span style='{val_s}'>{r['currency']}{r['strike_d30']:,.2f}</span></div>"
+                f"<div style='{row_s}'><span style='{lbl_s}'>🟡 Delta ~0.25 (Moderate)</span><span style='{val_s}'>{r['currency']}{r['strike_d25']:,.2f}</span></div>"
+                f"<div style='{row_s}'><span style='{lbl_s}'>🔵 5% OTM (Conservative)</span><span style='{val_s}'>{r['currency']}{r['strike_5pct']:,.2f}</span></div>"
+                "</div>"
+                "</div>"
+            )
             st.markdown(html, unsafe_allow_html=True)
 
             cb1, cb2 = st.columns([1,1])
