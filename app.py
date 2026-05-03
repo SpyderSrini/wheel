@@ -947,7 +947,6 @@ with tab_nse:
     with c5:
         st.markdown("<br>", unsafe_allow_html=True)
         run_nse = st.button("🚀 Run Scan", key="run_nse")
-    st.markdown("</div>", unsafe_allow_html=True)
 
     if run_nse:
         st.session_state.nse_results = None
@@ -1057,7 +1056,7 @@ with tab_hk:
 
 # ── TAB 3: US ─────────────────────────────────────────────────────────────────
 with tab_us:
-    st.markdown("<div class='config-panel'><div class='config-title'>⚙️ Screener Configuration</div>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#6b8fa8;font-size:0.72rem;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:0.5rem'>⚙️ Screener Configuration</p>", unsafe_allow_html=True)
     u1, u2, u3, u4, u5 = st.columns([2, 1.2, 1.5, 1.2, 1])
     with u1:
         max_cap_usd = 999_999_999  # No capital limit
@@ -1071,8 +1070,6 @@ with tab_us:
     with u5:
         st.markdown("<br>", unsafe_allow_html=True)
         run_us = st.button("🚀 Run Scan", key="run_us")
-    st.markdown("</div>", unsafe_allow_html=True)
-
     st.markdown("""
     <div style='display:flex; gap:8px; flex-wrap:wrap; margin-bottom:1rem; font-size:0.78rem'>
         <span class='tag tag-blue' style='padding:3px 8px'>💡 1 contract = 100 shares · Capital in USD</span>
@@ -1143,7 +1140,7 @@ with tab_metals:
     </div>""", unsafe_allow_html=True)
 
     # Config panel
-    st.markdown("<div class='config-panel'><div class='config-title'>⚙️ Screener Configuration</div>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#6b8fa8;font-size:0.72rem;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:0.5rem'>⚙️ Screener Configuration</p>", unsafe_allow_html=True)
     mt1, mt2, mt3, mt4, mt5 = st.columns([2, 1.5, 1.5, 1.2, 1])
     with mt1:
         max_cap_metals = 999_999_999  # No capital limit
@@ -1157,7 +1154,6 @@ with tab_metals:
     with mt5:
         st.markdown("<br>", unsafe_allow_html=True)
         run_metals = st.button("🚀 Run Scan", key="run_metals")
-    st.markdown("</div>", unsafe_allow_html=True)
 
     if run_metals:
         st.session_state.metals_results = None
@@ -1283,7 +1279,7 @@ with tab_wb:
 - Option premium viability: 15 pts""")
 
     # Config
-    st.markdown("<div class='config-panel'><div class='config-title'>⚙️ Screener Configuration</div>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#6b8fa8;font-size:0.72rem;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:0.5rem'>⚙️ Screener Configuration</p>", unsafe_allow_html=True)
     wb1, wb2, wb3, wb4 = st.columns([1.5, 1.5, 1, 0.8])
     with wb1:
         wb_regions = st.multiselect("🌍 Regions", ['India','HK','USA'], default=[], placeholder="All regions", key="wb_reg")
@@ -1294,7 +1290,6 @@ with tab_wb:
     with wb4:
         st.markdown("<div style='margin-top:1.85rem'></div>", unsafe_allow_html=True)
         run_wb = st.button("🚀 Run Scan", key="run_wb", use_container_width=True)
-    st.markdown("</div>", unsafe_allow_html=True)
 
     if run_wb:
         st.session_state.wb_results = None
