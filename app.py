@@ -933,7 +933,7 @@ tab_wb, tab_nse, tab_hk, tab_us, tab_metals = st.tabs(["💎  Wealth Builder", "
 
 # ── TAB 1: NSE ────────────────────────────────────────────────────────────────
 with tab_nse:
-    st.markdown("<div class='config-panel'><div class='config-title'>⚙️ Screener Configuration</div>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#6b8fa8;font-size:0.72rem;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:0.5rem'>⚙️ Screener Configuration</p>", unsafe_allow_html=True)
     c1, c2, c3, c4, c5 = st.columns([2, 1.2, 1.5, 1.2, 1])
     with c1:
         max_capital = 999_999_999  # No capital limit
@@ -999,7 +999,7 @@ with tab_nse:
 
 # ── TAB 2: HK ─────────────────────────────────────────────────────────────────
 with tab_hk:
-    st.markdown("<div class='config-panel'><div class='config-title'>⚙️ Screener Configuration</div>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#6b8fa8;font-size:0.72rem;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:0.5rem'>⚙️ Screener Configuration</p>", unsafe_allow_html=True)
     h1, h2, h3 = st.columns([2, 1.5, 1])
     with h1:
         max_cap_hkd = 999_999_999  # No capital limit
@@ -1008,7 +1008,6 @@ with tab_hk:
     with h3:
         st.markdown("<br>", unsafe_allow_html=True)
         run_hk = st.button("🚀 Run Scan", key="run_hk")
-    st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("""
     <div style='display:flex; gap:10px; flex-wrap:wrap; margin-bottom:1rem'>
         <span class='tag tag-blue' style='font-size:0.8rem; padding:4px 10px'>📌 Link REIT (0823.HK) · Lot 1,000</span>
