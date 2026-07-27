@@ -531,11 +531,15 @@ NIFTY50 = [
 ]
 
 def calc_rsi(series, period=14):
+    """RSI using Wilder's Smoothing (RMA) — matches TradingView exactly"""
     delta = series.diff()
-    gain  = delta.clip(lower=0).rolling(period).mean()
-    loss  = (-delta.clip(upper=0)).rolling(period).mean()
-    rs    = gain / loss.replace(0, 1e-10)
-    rsi   = 100 - (100 / (1 + rs))
+    gain  = delta.clip(lower=0)
+    loss  = (-delta.clip(upper=0))
+    # Wilder's RMA = EWM with alpha=1/period, adjust=False
+    avg_gain = gain.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    rs  = avg_gain / avg_loss.replace(0, 1e-10)
+    rsi = 100 - (100 / (1 + rs))
     return round(float(rsi.dropna().iloc[-1]), 1)
 
 def safe_float(val, default=0.0):
