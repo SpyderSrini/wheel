@@ -549,51 +549,57 @@ def safe_float(val, default=0.0):
 
 def fetch_n50_data(ticker):
     try:
-        stock = yf.Ticker(ticker)
-        # Use 6 months to ensure enough data for RSI
-        hist  = stock.history(period='6mo')
-        if hist is None or len(hist) < 20:
-            return None
-        # Drop any NaN closes
-        hist  = hist.dropna(subset=['Close'])
-        if len(hist) < 20:
+        # Use yf.download — more reliable than Ticker.history for NSE
+        raw = yf.download(ticker, period='6mo', auto_adjust=True, progress=False)
+
+        # Flatten MultiIndex columns if present
+        if isinstance(raw.columns, pd.MultiIndex):
+            raw.columns = raw.columns.get_level_values(0)
+
+        if raw is None or len(raw) < 20:
             return None
 
-        price     = float(hist['Close'].iloc[-1])
+        # Get Close column reliably
+        close = raw['Close'].dropna()
+        if len(close) < 20:
+            return None
+
+        price     = float(close.iloc[-1])
         if price <= 0:
             return None
 
-        rsi       = calc_rsi(hist['Close'])
-        change_1d = ((price - float(hist['Close'].iloc[-2])) / float(hist['Close'].iloc[-2])) * 100 if len(hist) >= 2 else 0.0
-        ma50_val  = hist['Close'].rolling(50).mean().iloc[-1] if len(hist) >= 50 else None
+        rsi       = calc_rsi(close)
+        change_1d = ((price - float(close.iloc[-2])) / float(close.iloc[-2])) * 100 if len(close) >= 2 else 0.0
+        ma50_series = close.rolling(50).mean()
+        ma50_val    = float(ma50_series.iloc[-1]) if len(close) >= 50 and not np.isnan(ma50_series.iloc[-1]) else None
 
-        # Get info separately with fallback
+        # Get fundamentals via Ticker.info
         try:
-            info = stock.info or {}
+            info = yf.Ticker(ticker).info or {}
         except:
             info = {}
 
-        # Safe extraction of all fields
-        pe          = safe_float(info.get('trailingPE'))
-        forward_pe  = safe_float(info.get('forwardPE'))
-        pb          = safe_float(info.get('priceToBook'))
-        mkt_cap     = safe_float(info.get('marketCap'))
-        # Dividend yield — try dividendYield first, fall back to dividendRate/price
-        div_raw     = info.get('dividendYield')
-        if div_raw:
+        pe         = safe_float(info.get('trailingPE'))
+        forward_pe = safe_float(info.get('forwardPE'))
+        pb         = safe_float(info.get('priceToBook'))
+        mkt_cap    = safe_float(info.get('marketCap'))
+
+        # Dividend yield
+        div_raw   = info.get('dividendYield')
+        if div_raw and safe_float(div_raw) > 0:
             div_yield = safe_float(div_raw) * 100
         else:
             div_rate  = safe_float(info.get('dividendRate'))
-            div_yield = (div_rate / price * 100) if price > 0 else 0.0
-        div_yield = min(div_yield, 20.0)  # cap at 20%
+            div_yield = (div_rate / price * 100) if div_rate > 0 and price > 0 else 0.0
+        div_yield = min(div_yield, 20.0)
 
-        sector = info.get('sector') or info.get('industry') or 'N/A'
-        name   = info.get('shortName') or info.get('longName') or ticker.replace('.NS','')
+        sector = str(info.get('sector') or info.get('industry') or 'N/A')
+        name   = str(info.get('shortName') or info.get('longName') or ticker.replace('.NS',''))
 
         return {
             'ticker':      ticker.replace('.NS',''),
-            'name':        str(name)[:22],
-            'sector':      str(sector),
+            'name':        name[:22],
+            'sector':      sector,
             'price':       round(price, 2),
             'change_1d':   round(change_1d, 2),
             'rsi':         rsi,
@@ -602,7 +608,7 @@ def fetch_n50_data(ticker):
             'pb':          round(pb, 2),
             'div_yield':   round(div_yield, 2),
             'market_cap':  round(mkt_cap / 1e7, 0) if mkt_cap > 0 else 0,
-            'above_50ma':  (price > float(ma50_val)) if ma50_val and not np.isnan(ma50_val) else None,
+            'above_50ma':  (price > ma50_val) if ma50_val else None,
             'rsi_signal':  'Oversold' if rsi < 35 else ('Overbought' if rsi > 65 else 'Neutral'),
         }
     except Exception:
