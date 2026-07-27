@@ -516,8 +516,56 @@ def fetch_wb_stock_data(ticker, meta, expiry_days=30):
         }
     except: return None
 
+# ── Nifty 50 Universe ────────────────────────────────────────────────────────
+NIFTY50 = [
+    'RELIANCE.NS','TCS.NS','HDFCBANK.NS','BHARTIARTL.NS','ICICIBANK.NS',
+    'INFOSYS.NS' if False else 'INFY.NS','SBIN.NS','HINDUNILVR.NS','ITC.NS','BAJFINANCE.NS',
+    'KOTAKBANK.NS','LT.NS','HCLTECH.NS','AXISBANK.NS','MARUTI.NS',
+    'SUNPHARMA.NS','TITAN.NS','NTPC.NS','POWERGRID.NS','ULTRACEMCO.NS',
+    'WIPRO.NS','ONGC.NS','TECHM.NS','ADANIENT.NS','BAJAJFINSV.NS',
+    'NESTLEIND.NS','COALINDIA.NS','TATAMOTORS.NS','ADANIPORTS.NS','JSWSTEEL.NS',
+    'TATASTEEL.NS','HINDALCO.NS','GRASIM.NS','DRREDDY.NS','CIPLA.NS',
+    'DIVISLAB.NS','BAJAJ-AUTO.NS','EICHERMOT.NS','HEROMOTOCO.NS','TATACONSUM.NS',
+    'APOLLOHOSP.NS','INDUSINDBK.NS','SHRIRAMFIN.NS','BPCL.NS','BRITANNIA.NS',
+    'LTIM.NS','HDFCLIFE.NS','SBILIFE.NS','TRENT.NS','BEL.NS'
+]
+
+def calc_rsi(series, period=14):
+    delta = series.diff()
+    gain  = delta.clip(lower=0).rolling(period).mean()
+    loss  = (-delta.clip(upper=0)).rolling(period).mean()
+    rs    = gain / loss.replace(0, 1e-10)
+    return (100 - (100 / (1 + rs))).iloc[-1]
+
+def fetch_n50_data(ticker):
+    try:
+        stock = yf.Ticker(ticker)
+        hist  = stock.history(period='3mo')
+        if len(hist) < 20: return None
+        info  = stock.info
+        price = hist['Close'].iloc[-1]
+        rsi   = calc_rsi(hist['Close'])
+        change_1d = ((price - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100 if len(hist) >= 2 else 0
+        ma50  = hist['Close'].rolling(50).mean().iloc[-1] if len(hist) >= 50 else None
+        return {
+            'ticker':       ticker.replace('.NS',''),
+            'name':         info.get('shortName', ticker.replace('.NS',''))[:22],
+            'sector':       info.get('sector', 'N/A'),
+            'price':        round(price, 2),
+            'change_1d':    round(change_1d, 2),
+            'rsi':          round(rsi, 1),
+            'pe':           round(info.get('trailingPE') or 0, 1),
+            'forward_pe':   round(info.get('forwardPE') or 0, 1),
+            'pb':           round(info.get('priceToBook') or 0, 2),
+            'div_yield':    round((info.get('dividendYield') or 0) * 100, 2) if ticker != 'TATAMOTORS.NS' else round(((info.get('dividendRate') or 0) / price * 100), 2),
+            'market_cap':   round((info.get('marketCap') or 0) / 1e7, 0),
+            'above_50ma':   price > ma50 if ma50 else None,
+            'rsi_signal':   'Oversold' if rsi < 35 else ('Overbought' if rsi > 65 else 'Neutral'),
+        }
+    except: return None
+
 # ── Session State ─────────────────────────────────────────────────────────────
-for key, val in {'show_chart': {}, 'hist_data': {}, 'nse_results': None, 'nse_time': None, 'hk_results': None, 'hk_time': None, 'us_results': None, 'us_time': None, 'metals_results': None, 'metals_time': None, 'wb_results': None, 'wb_time': None, 'ai_analysis': {}}.items():
+for key, val in {'show_chart': {}, 'hist_data': {}, 'nse_results': None, 'nse_time': None, 'hk_results': None, 'hk_time': None, 'us_results': None, 'us_time': None, 'metals_results': None, 'metals_time': None, 'wb_results': None, 'wb_time': None, 'n50_results': None, 'n50_time': None, 'ai_analysis': {}}.items():
     if key not in st.session_state:
         st.session_state[key] = val
 
@@ -929,7 +977,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
-tab_wb, tab_nse, tab_hk, tab_us, tab_metals = st.tabs(["💎  Wealth Builder", "🇮🇳  NSE Screener", "🇭🇰  HK Screener", "🇺🇸  US Screener", "🪙  Metals"])
+tab_wb, tab_nse, tab_hk, tab_us, tab_metals, tab_n50 = st.tabs(["💎  Wealth Builder", "🇮🇳  NSE Screener", "🇭🇰  HK Screener", "🇺🇸  US Screener", "🪙  Metals", "📊  Nifty 50"])
 
 # ── TAB 1: NSE ────────────────────────────────────────────────────────────────
 with tab_nse:
@@ -1512,6 +1560,162 @@ with tab_wb:
                 <span class='tag tag-blue' style='padding:5px 12px'>💰 Dividend yield weighted 25%</span>
                 <span class='tag tag-green' style='padding:5px 12px'>📈 Quality business moats</span>
                 <span class='tag tag-yellow' style='padding:5px 12px'>🌍 Global diversification</span>
+            </div>
+        </div>""", unsafe_allow_html=True)
+
+# ── TAB 6: NIFTY 50 ──────────────────────────────────────────────────────────
+with tab_n50:
+    st.markdown("<p style='color:#6b8fa8;font-size:0.72rem;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:0.5rem'>⚙️ Configuration</p>", unsafe_allow_html=True)
+
+    nc1, nc2, nc3, nc4 = st.columns([1.5, 1.5, 1.5, 1])
+    with nc1:
+        n50_sector = st.multiselect("🏭 Sector Filter", ['Technology','Financial Services','Energy','Consumer Defensive','Healthcare','Industrials','Basic Materials','Communication Services','Consumer Cyclical','Utilities'], default=[], placeholder="All sectors", key="n50_sec")
+    with nc2:
+        rsi_filter = st.selectbox("📊 RSI Filter", ["All", "Oversold (<35) 🟢", "Neutral (35–65)", "Overbought (>65) 🔴"], key="n50_rsi")
+    with nc3:
+        n50_sort   = st.selectbox("↕️ Sort By", ["RSI ↑ (Oversold first)", "RSI ↓ (Overbought first)", "PE ↑ (Cheapest first)", "PE ↓ (Most expensive)", "1D Change ↓", "1D Change ↑", "Market Cap ↓"], key="n50_sort")
+    with nc4:
+        st.markdown("<div style='margin-top:1.85rem'></div>", unsafe_allow_html=True)
+        run_n50 = st.button("🚀 Run Scan", key="run_n50", use_container_width=True)
+
+    # Legend
+    st.markdown("""
+    <div style='display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1rem;font-size:0.78rem'>
+        <span style='background:#00d4aa22;color:#00d4aa;padding:3px 10px;border-radius:4px;border:1px solid #00d4aa44'>🟢 RSI &lt;35 — Oversold (CSP opportunity)</span>
+        <span style='background:#6b8fa822;color:#a0b4c0;padding:3px 10px;border-radius:4px;border:1px solid #2a3f52'>⚪ RSI 35–65 — Neutral</span>
+        <span style='background:#ff4b4b22;color:#ff4b4b;padding:3px 10px;border-radius:4px;border:1px solid #ff4b4b44'>🔴 RSI &gt;65 — Overbought (avoid puts)</span>
+    </div>""", unsafe_allow_html=True)
+
+    if run_n50:
+        st.session_state.n50_results = None
+        n50_bar = st.progress(0, text="📊 Fetching Nifty 50 data...")
+        n50_res = []
+        for i, ticker in enumerate(NIFTY50):
+            n50_bar.progress((i+1)/len(NIFTY50), text=f"📊 {ticker.replace('.NS','')} ({i+1}/{len(NIFTY50)})")
+            d = fetch_n50_data(ticker)
+            if d: n50_res.append(d)
+        n50_bar.empty()
+        st.session_state.n50_results = n50_res
+        st.session_state.n50_time    = datetime.now().strftime('%d %b %Y, %I:%M %p')
+
+    if st.session_state.n50_results:
+        res  = st.session_state.n50_results
+        df50 = pd.DataFrame(res)
+
+        # Apply filters
+        if n50_sector:
+            df50 = df50[df50['sector'].isin(n50_sector)]
+        if rsi_filter == "Oversold (<35) 🟢":
+            df50 = df50[df50['rsi'] < 35]
+        elif rsi_filter == "Neutral (35–65)":
+            df50 = df50[(df50['rsi'] >= 35) & (df50['rsi'] <= 65)]
+        elif rsi_filter == "Overbought (>65) 🔴":
+            df50 = df50[df50['rsi'] > 65]
+
+        # Apply sort
+        sort_map = {
+            "RSI ↑ (Oversold first)":    ('rsi',        True),
+            "RSI ↓ (Overbought first)":  ('rsi',        False),
+            "PE ↑ (Cheapest first)":     ('pe',         True),
+            "PE ↓ (Most expensive)":     ('pe',         False),
+            "1D Change ↓":               ('change_1d',  False),
+            "1D Change ↑":               ('change_1d',  True),
+            "Market Cap ↓":              ('market_cap', False),
+        }
+        sc, asc = sort_map.get(n50_sort, ('rsi', True))
+        df50 = df50[df50[sc] > 0].sort_values(sc, ascending=asc)
+
+        st.markdown(f"<p style='color:#6b8fa8;font-size:0.8rem;margin:0.5rem 0'>Last scan: {st.session_state.n50_time} · {len(df50)} stocks shown</p>", unsafe_allow_html=True)
+
+        # Summary boxes
+        oversold  = len(df50[df50['rsi'] < 35])
+        neutral   = len(df50[(df50['rsi'] >= 35) & (df50['rsi'] <= 65)])
+        overbought= len(df50[df50['rsi'] > 65])
+        avg_pe    = round(df50[df50['pe'] > 0]['pe'].mean(), 1)
+
+        sm1,sm2,sm3,sm4 = st.columns(4)
+        for col,lbl,val,col_style in [
+            (sm1,'🟢 Oversold',    oversold,   '#00d4aa'),
+            (sm2,'⚪ Neutral',     neutral,    '#a0b4c0'),
+            (sm3,'🔴 Overbought',  overbought, '#ff4b4b'),
+            (sm4,'📊 Avg Nifty PE',avg_pe,     '#f5a623'),
+        ]:
+            col.markdown(f"<div style='background:#0d1a26;border:1px solid #1e3347;border-radius:10px;padding:0.8rem;text-align:center'>"
+                         f"<div style='color:#6b8fa8;font-size:0.7rem;text-transform:uppercase;letter-spacing:1px'>{lbl}</div>"
+                         f"<div style='color:{col_style};font-family:Space Mono,monospace;font-size:1.6rem;font-weight:700'>{val}</div>"
+                         f"</div>", unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Table header
+        st.markdown("""
+        <div style='display:grid;grid-template-columns:80px 160px 160px 70px 80px 70px 70px 70px 90px 100px;
+             gap:4px;padding:6px 10px;background:#0d1a26;border-radius:6px;
+             font-size:0.7rem;color:#6b8fa8;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px'>
+            <div>Ticker</div><div>Name</div><div>Sector</div>
+            <div style='text-align:right'>Price</div>
+            <div style='text-align:right'>1D %</div>
+            <div style='text-align:right'>RSI</div>
+            <div style='text-align:right'>PE</div>
+            <div style='text-align:right'>Fwd PE</div>
+            <div style='text-align:right'>P/B</div>
+            <div style='text-align:right'>Div Yield</div>
+        </div>""", unsafe_allow_html=True)
+
+        # Table rows
+        for _, row in df50.iterrows():
+            rsi_val  = row['rsi']
+            if rsi_val < 35:
+                rsi_bg = '#00d4aa22'; rsi_col = '#00d4aa'; rsi_emoji = '🟢'
+            elif rsi_val > 65:
+                rsi_bg = '#ff4b4b22'; rsi_col = '#ff4b4b'; rsi_emoji = '🔴'
+            else:
+                rsi_bg = '#1a2332';   rsi_col = '#a0b4c0'; rsi_emoji = '⚪'
+
+            chg      = row['change_1d']
+            chg_col  = '#00d4aa' if chg >= 0 else '#ff4b4b'
+            chg_str  = f"+{chg:.2f}%" if chg >= 0 else f"{chg:.2f}%"
+            pe_str   = f"{row['pe']:.1f}" if row['pe'] > 0 else '—'
+            fpe_str  = f"{row['forward_pe']:.1f}" if row['forward_pe'] > 0 else '—'
+            pb_str   = f"{row['pb']:.2f}" if row['pb'] > 0 else '—'
+            div_str  = f"{row['div_yield']:.1f}%" if row['div_yield'] > 0 else '—'
+            ma_dot   = "🟢" if row['above_50ma'] else ("🔴" if row['above_50ma'] is False else "⚪")
+
+            st.markdown(
+                f"<div style='display:grid;grid-template-columns:80px 160px 160px 70px 80px 70px 70px 70px 90px 100px;"
+                f"gap:4px;padding:8px 10px;background:{rsi_bg};border-radius:6px;margin-bottom:3px;"
+                f"border-left:3px solid {rsi_col};align-items:center;font-size:0.82rem'>"
+                f"<div style='color:#fff;font-family:Space Mono,monospace;font-weight:700'>{row['ticker']}</div>"
+                f"<div style='color:#a0b4c0'>{row['name']}</div>"
+                f"<div style='color:#6b8fa8;font-size:0.75rem'>{row['sector'][:18]}</div>"
+                f"<div style='text-align:right;color:#fff;font-weight:600'>₹{row['price']:,.1f}</div>"
+                f"<div style='text-align:right;color:{chg_col};font-weight:600'>{chg_str}</div>"
+                f"<div style='text-align:right;color:{rsi_col};font-weight:700'>{rsi_emoji} {rsi_val:.1f}</div>"
+                f"<div style='text-align:right;color:#f5a623'>{pe_str}</div>"
+                f"<div style='text-align:right;color:#a0b4c0'>{fpe_str}</div>"
+                f"<div style='text-align:right;color:#a0b4c0'>{pb_str}</div>"
+                f"<div style='text-align:right;color:#4b9fff'>{div_str}</div>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+
+        # Download
+        st.markdown("<br>", unsafe_allow_html=True)
+        csv_cols = ['ticker','name','sector','price','change_1d','rsi','rsi_signal','pe','forward_pe','pb','div_yield','market_cap']
+        st.download_button("📥 Download Nifty 50 Data (CSV)",
+            data=df50[csv_cols].to_csv(index=False),
+            file_name=f"nifty50_rsi_pe_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv", use_container_width=True)
+    else:
+        st.markdown("""
+        <div style='text-align:center;padding:4rem 2rem;color:#3a5060'>
+            <div style='font-size:3.5rem'>📊</div>
+            <p style='font-family:Space Mono,monospace;color:#6b8fa8;margin:1rem 0 0.5rem'>Nifty 50 — RSI + PE Dashboard</p>
+            <p style='font-size:0.85rem'>Click <strong style='color:#00d4aa'>Run Scan</strong> to fetch live data for all 50 stocks</p>
+            <div style='display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:1.5rem'>
+                <span style='background:#00d4aa22;color:#00d4aa;padding:4px 12px;border-radius:4px;font-size:0.78rem'>🟢 Oversold RSI — CSP opportunity</span>
+                <span style='background:#f5a62322;color:#f5a623;padding:4px 12px;border-radius:4px;font-size:0.78rem'>📊 PE + Forward PE + P/B</span>
+                <span style='background:#4b9fff22;color:#4b9fff;padding:4px 12px;border-radius:4px;font-size:0.78rem'>💰 Dividend yield</span>
             </div>
         </div>""", unsafe_allow_html=True)
 
