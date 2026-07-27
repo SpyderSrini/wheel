@@ -519,7 +519,7 @@ def fetch_wb_stock_data(ticker, meta, expiry_days=30):
 # ── Nifty 50 Universe ────────────────────────────────────────────────────────
 NIFTY50 = [
     'RELIANCE.NS','TCS.NS','HDFCBANK.NS','BHARTIARTL.NS','ICICIBANK.NS',
-    'INFOSYS.NS' if False else 'INFY.NS','SBIN.NS','HINDUNILVR.NS','ITC.NS','BAJFINANCE.NS',
+    'INFY.NS','SBIN.NS','HINDUNILVR.NS','ITC.NS','BAJFINANCE.NS',
     'KOTAKBANK.NS','LT.NS','HCLTECH.NS','AXISBANK.NS','MARUTI.NS',
     'SUNPHARMA.NS','TITAN.NS','NTPC.NS','POWERGRID.NS','ULTRACEMCO.NS',
     'WIPRO.NS','ONGC.NS','TECHM.NS','ADANIENT.NS','BAJAJFINSV.NS',
@@ -535,34 +535,78 @@ def calc_rsi(series, period=14):
     gain  = delta.clip(lower=0).rolling(period).mean()
     loss  = (-delta.clip(upper=0)).rolling(period).mean()
     rs    = gain / loss.replace(0, 1e-10)
-    return (100 - (100 / (1 + rs))).iloc[-1]
+    rsi   = 100 - (100 / (1 + rs))
+    return round(float(rsi.dropna().iloc[-1]), 1)
+
+def safe_float(val, default=0.0):
+    """Safely convert value to float, handling None and NaN"""
+    try:
+        import math
+        f = float(val)
+        return default if math.isnan(f) or math.isinf(f) else f
+    except:
+        return default
 
 def fetch_n50_data(ticker):
     try:
         stock = yf.Ticker(ticker)
-        hist  = stock.history(period='3mo')
-        if len(hist) < 20: return None
-        info  = stock.info
-        price = hist['Close'].iloc[-1]
-        rsi   = calc_rsi(hist['Close'])
-        change_1d = ((price - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100 if len(hist) >= 2 else 0
-        ma50  = hist['Close'].rolling(50).mean().iloc[-1] if len(hist) >= 50 else None
+        # Use 6 months to ensure enough data for RSI
+        hist  = stock.history(period='6mo')
+        if hist is None or len(hist) < 20:
+            return None
+        # Drop any NaN closes
+        hist  = hist.dropna(subset=['Close'])
+        if len(hist) < 20:
+            return None
+
+        price     = float(hist['Close'].iloc[-1])
+        if price <= 0:
+            return None
+
+        rsi       = calc_rsi(hist['Close'])
+        change_1d = ((price - float(hist['Close'].iloc[-2])) / float(hist['Close'].iloc[-2])) * 100 if len(hist) >= 2 else 0.0
+        ma50_val  = hist['Close'].rolling(50).mean().iloc[-1] if len(hist) >= 50 else None
+
+        # Get info separately with fallback
+        try:
+            info = stock.info or {}
+        except:
+            info = {}
+
+        # Safe extraction of all fields
+        pe          = safe_float(info.get('trailingPE'))
+        forward_pe  = safe_float(info.get('forwardPE'))
+        pb          = safe_float(info.get('priceToBook'))
+        mkt_cap     = safe_float(info.get('marketCap'))
+        # Dividend yield — try dividendYield first, fall back to dividendRate/price
+        div_raw     = info.get('dividendYield')
+        if div_raw:
+            div_yield = safe_float(div_raw) * 100
+        else:
+            div_rate  = safe_float(info.get('dividendRate'))
+            div_yield = (div_rate / price * 100) if price > 0 else 0.0
+        div_yield = min(div_yield, 20.0)  # cap at 20%
+
+        sector = info.get('sector') or info.get('industry') or 'N/A'
+        name   = info.get('shortName') or info.get('longName') or ticker.replace('.NS','')
+
         return {
-            'ticker':       ticker.replace('.NS',''),
-            'name':         info.get('shortName', ticker.replace('.NS',''))[:22],
-            'sector':       info.get('sector', 'N/A'),
-            'price':        round(price, 2),
-            'change_1d':    round(change_1d, 2),
-            'rsi':          round(rsi, 1),
-            'pe':           round(info.get('trailingPE') or 0, 1),
-            'forward_pe':   round(info.get('forwardPE') or 0, 1),
-            'pb':           round(info.get('priceToBook') or 0, 2),
-            'div_yield':    round((info.get('dividendYield') or 0) * 100, 2) if ticker != 'TATAMOTORS.NS' else round(((info.get('dividendRate') or 0) / price * 100), 2),
-            'market_cap':   round((info.get('marketCap') or 0) / 1e7, 0),
-            'above_50ma':   price > ma50 if ma50 else None,
-            'rsi_signal':   'Oversold' if rsi < 35 else ('Overbought' if rsi > 65 else 'Neutral'),
+            'ticker':      ticker.replace('.NS',''),
+            'name':        str(name)[:22],
+            'sector':      str(sector),
+            'price':       round(price, 2),
+            'change_1d':   round(change_1d, 2),
+            'rsi':         rsi,
+            'pe':          round(pe, 1),
+            'forward_pe':  round(forward_pe, 1),
+            'pb':          round(pb, 2),
+            'div_yield':   round(div_yield, 2),
+            'market_cap':  round(mkt_cap / 1e7, 0) if mkt_cap > 0 else 0,
+            'above_50ma':  (price > float(ma50_val)) if ma50_val and not np.isnan(ma50_val) else None,
+            'rsi_signal':  'Oversold' if rsi < 35 else ('Overbought' if rsi > 65 else 'Neutral'),
         }
-    except: return None
+    except Exception:
+        return None
 
 # ── Session State ─────────────────────────────────────────────────────────────
 for key, val in {'show_chart': {}, 'hist_data': {}, 'nse_results': None, 'nse_time': None, 'hk_results': None, 'hk_time': None, 'us_results': None, 'us_time': None, 'metals_results': None, 'metals_time': None, 'wb_results': None, 'wb_time': None, 'n50_results': None, 'n50_time': None, 'ai_analysis': {}}.items():
@@ -1623,7 +1667,10 @@ with tab_n50:
             "Market Cap ↓":              ('market_cap', False),
         }
         sc, asc = sort_map.get(n50_sort, ('rsi', True))
-        df50 = df50[df50[sc] > 0].sort_values(sc, ascending=asc)
+        # Only filter out zeros for PE-based sorts (RSI is always > 0)
+        if sc in ('pe', 'forward_pe', 'pb'):
+            df50 = df50[df50[sc] > 0]
+        df50 = df50.sort_values(sc, ascending=asc)
 
         st.markdown(f"<p style='color:#6b8fa8;font-size:0.8rem;margin:0.5rem 0'>Last scan: {st.session_state.n50_time} · {len(df50)} stocks shown</p>", unsafe_allow_html=True)
 
