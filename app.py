@@ -588,32 +588,57 @@ def fetch_n50_data(ticker):
         pb         = safe_float(info.get('priceToBook'))
         mkt_cap    = safe_float(info.get('marketCap'))
 
-        # Dividend yield
+        # ── Dividend yield — careful not to multiply already-pct values ──────
+        # yfinance dividendYield is already a decimal (e.g. 0.035 = 3.5%)
+        # dividendRate is annual dividend in currency units
+        div_yield = 0.0
         div_raw   = info.get('dividendYield')
-        if div_raw and safe_float(div_raw) > 0:
-            div_yield = safe_float(div_raw) * 100
-        else:
-            div_rate  = safe_float(info.get('dividendRate'))
-            div_yield = (div_rate / price * 100) if div_rate > 0 and price > 0 else 0.0
-        div_yield = min(div_yield, 20.0)
+        div_rate  = safe_float(info.get('dividendRate'))
+        if div_raw is not None:
+            dv = safe_float(div_raw)
+            # yfinance sometimes returns it as 0.035 (decimal) or 3.5 (pct)
+            if 0 < dv < 1:          # decimal form e.g. 0.035
+                div_yield = dv * 100
+            elif 1 <= dv <= 20:     # already percentage e.g. 3.5
+                div_yield = dv
+            # anything > 20 is almost certainly wrong data — skip it
+        if div_yield == 0.0 and div_rate > 0 and price > 0:
+            # fall back to dividendRate / price
+            div_yield = (div_rate / price) * 100
+        div_yield = round(min(div_yield, 20.0), 2)  # hard cap at 20%
+
+        # ── Debt ─────────────────────────────────────────────────────────────
+        total_debt_raw = safe_float(info.get('totalDebt'))
+        total_debt_cr  = round(total_debt_raw / 1e7, 0) if total_debt_raw > 0 else 0  # in ₹ crores
+        debt_to_equity = safe_float(info.get('debtToEquity'))  # ratio
 
         sector = str(info.get('sector') or info.get('industry') or 'N/A')
         name   = str(info.get('shortName') or info.get('longName') or ticker.replace('.NS',''))
 
+        # ── Growth expected: how much earnings expected to grow ───────────────
+        # Positive = earnings growing (good), Negative = earnings shrinking (bad)
+        if pe > 0 and forward_pe > 0:
+            growth_exp = round(((pe - forward_pe) / forward_pe) * 100, 1)
+        else:
+            growth_exp = None
+
         return {
-            'ticker':      ticker.replace('.NS',''),
-            'name':        name[:22],
-            'sector':      sector,
-            'price':       round(price, 2),
-            'change_1d':   round(change_1d, 2),
-            'rsi':         rsi,
-            'pe':          round(pe, 1),
-            'forward_pe':  round(forward_pe, 1),
-            'pb':          round(pb, 2),
-            'div_yield':   round(div_yield, 2),
-            'market_cap':  round(mkt_cap / 1e7, 0) if mkt_cap > 0 else 0,
-            'above_50ma':  (price > ma50_val) if ma50_val else None,
-            'rsi_signal':  'Oversold' if rsi < 35 else ('Overbought' if rsi > 65 else 'Neutral'),
+            'ticker':         ticker.replace('.NS',''),
+            'name':           name[:22],
+            'sector':         sector,
+            'price':          round(price, 2),
+            'change_1d':      round(change_1d, 2),
+            'rsi':            rsi,
+            'pe':             round(pe, 1),
+            'forward_pe':     round(forward_pe, 1),
+            'growth_exp':     growth_exp,
+            'pb':             round(pb, 2),
+            'div_yield':      div_yield,
+            'total_debt_cr':  total_debt_cr,
+            'debt_to_equity': round(debt_to_equity, 1) if debt_to_equity else 0,
+            'market_cap':     round(mkt_cap / 1e7, 0) if mkt_cap > 0 else 0,
+            'above_50ma':     (price > ma50_val) if ma50_val else None,
+            'rsi_signal':     'Oversold' if rsi < 35 else ('Overbought' if rsi > 65 else 'Neutral'),
         }
     except Exception:
         return None
@@ -1627,7 +1652,7 @@ with tab_n50:
     with nc2:
         rsi_filter = st.selectbox("📊 RSI Filter", ["All", "Oversold (<35) 🟢", "Neutral (35–65)", "Overbought (>65) 🔴"], key="n50_rsi")
     with nc3:
-        n50_sort   = st.selectbox("↕️ Sort By", ["RSI ↑ (Oversold first)", "RSI ↓ (Overbought first)", "PE ↑ (Cheapest first)", "PE ↓ (Most expensive)", "1D Change ↓", "1D Change ↑", "Market Cap ↓"], key="n50_sort")
+        n50_sort   = st.selectbox("↕️ Sort By", ["RSI ↑ (Oversold first)", "RSI ↓ (Overbought first)", "Growth Expected ↓", "PE ↑ (Cheapest first)", "PE ↓ (Most expensive)", "1D Change ↓", "1D Change ↑", "Market Cap ↓"], key="n50_sort")
     with nc4:
         st.markdown("<div style='margin-top:1.85rem'></div>", unsafe_allow_html=True)
         run_n50 = st.button("🚀 Run Scan", key="run_n50", use_container_width=True)
@@ -1670,6 +1695,7 @@ with tab_n50:
         sort_map = {
             "RSI ↑ (Oversold first)":    ('rsi',        True),
             "RSI ↓ (Overbought first)":  ('rsi',        False),
+            "Growth Expected ↓":         ('growth_exp', False),
             "PE ↑ (Cheapest first)":     ('pe',         True),
             "PE ↓ (Most expensive)":     ('pe',         False),
             "1D Change ↓":               ('change_1d',  False),
@@ -1677,9 +1703,11 @@ with tab_n50:
             "Market Cap ↓":              ('market_cap', False),
         }
         sc, asc = sort_map.get(n50_sort, ('rsi', True))
-        # Only filter out zeros for PE-based sorts (RSI is always > 0)
+        # Only filter out zeros/nulls for specific columns
         if sc in ('pe', 'forward_pe', 'pb'):
             df50 = df50[df50[sc] > 0]
+        elif sc == 'growth_exp':
+            df50 = df50[df50[sc].notna()]
         df50 = df50.sort_values(sc, ascending=asc)
 
         st.markdown(f"<p style='color:#6b8fa8;font-size:0.8rem;margin:0.5rem 0'>Last scan: {st.session_state.n50_time} · {len(df50)} stocks shown</p>", unsafe_allow_html=True)
@@ -1706,7 +1734,7 @@ with tab_n50:
 
         # Table header
         st.markdown("""
-        <div style='display:grid;grid-template-columns:80px 160px 160px 70px 80px 70px 70px 70px 90px 100px;
+        <div style='display:grid;grid-template-columns:75px 140px 140px 65px 70px 65px 60px 65px 80px 75px 85px;
              gap:4px;padding:6px 10px;background:#0d1a26;border-radius:6px;
              font-size:0.7rem;color:#6b8fa8;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px'>
             <div>Ticker</div><div>Name</div><div>Sector</div>
@@ -1715,6 +1743,7 @@ with tab_n50:
             <div style='text-align:right'>RSI</div>
             <div style='text-align:right'>PE</div>
             <div style='text-align:right'>Fwd PE</div>
+            <div style='text-align:right'>Growth</div>
             <div style='text-align:right'>P/B</div>
             <div style='text-align:right'>Div Yield</div>
         </div>""", unsafe_allow_html=True)
@@ -1738,8 +1767,18 @@ with tab_n50:
             div_str  = f"{row['div_yield']:.1f}%" if row['div_yield'] > 0 else '—'
             ma_dot   = "🟢" if row['above_50ma'] else ("🔴" if row['above_50ma'] is False else "⚪")
 
+            # Growth expected
+            g_val = row.get('growth_exp')
+            if g_val is not None:
+                if g_val > 10:   g_col = '#00d4aa'; g_str = f'▲ {g_val:.1f}%'
+                elif g_val > 0:  g_col = '#7fbf7f'; g_str = f'▲ {g_val:.1f}%'
+                elif g_val < -5: g_col = '#ff4b4b'; g_str = f'▼ {abs(g_val):.1f}%'
+                else:            g_col = '#6b8fa8'; g_str = f'▼ {abs(g_val):.1f}%'
+            else:
+                g_col = '#6b8fa8'; g_str = 'N/A'
+
             st.markdown(
-                f"<div style='display:grid;grid-template-columns:80px 160px 160px 70px 80px 70px 70px 70px 90px 100px;"
+                f"<div style='display:grid;grid-template-columns:75px 140px 140px 65px 70px 65px 60px 65px 80px 75px 85px;"
                 f"gap:4px;padding:8px 10px;background:{rsi_bg};border-radius:6px;margin-bottom:3px;"
                 f"border-left:3px solid {rsi_col};align-items:center;font-size:0.82rem'>"
                 f"<div style='color:#fff;font-family:Space Mono,monospace;font-weight:700'>{row['ticker']}</div>"
@@ -1750,6 +1789,7 @@ with tab_n50:
                 f"<div style='text-align:right;color:{rsi_col};font-weight:700'>{rsi_emoji} {rsi_val:.1f}</div>"
                 f"<div style='text-align:right;color:#f5a623'>{pe_str}</div>"
                 f"<div style='text-align:right;color:#a0b4c0'>{fpe_str}</div>"
+                f"<div style='text-align:right;color:{g_col};font-weight:700'>{g_str}</div>"
                 f"<div style='text-align:right;color:#a0b4c0'>{pb_str}</div>"
                 f"<div style='text-align:right;color:#4b9fff'>{div_str}</div>"
                 f"</div>",
@@ -1758,7 +1798,7 @@ with tab_n50:
 
         # Download
         st.markdown("<br>", unsafe_allow_html=True)
-        csv_cols = ['ticker','name','sector','price','change_1d','rsi','rsi_signal','pe','forward_pe','pb','div_yield','market_cap']
+        csv_cols = ['ticker','name','sector','price','change_1d','rsi','rsi_signal','pe','forward_pe','growth_exp','pb','div_yield','total_debt_cr','debt_to_equity','market_cap']
         st.download_button("📥 Download Nifty 50 Data (CSV)",
             data=df50[csv_cols].to_csv(index=False),
             file_name=f"nifty50_rsi_pe_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
