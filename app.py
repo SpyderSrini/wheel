@@ -187,10 +187,8 @@ def render_screener(tab_key, tickers, currency_symbol, title, scan_key, time_key
         rsi_filter = st.selectbox("📊 RSI Filter",
             ["All","Oversold (<35) 🟢","Neutral (35-65)","Overbought (>65) 🔴"], key="rsi_"+tab_key)
     with c3:
-        sort_by    = st.selectbox("Sort By",
-            ["RSI (Oversold first)","RSI (Overbought first)","PE (Cheapest first)",
-             "PE (Most expensive)","Growth (Most growth)","Div Yield","1D Change Down","1D Change Up"],
-            key="sort_"+tab_key)
+        st.markdown("<div style='color:#6b8fa8;font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px'>Sort By</div>", unsafe_allow_html=True)
+        st.caption("Click column headers ↕ to sort")
     with c4:
         search     = st.text_input("Search ticker / name", placeholder="e.g. RELIANCE", key="search_"+tab_key)
     with c5:
@@ -235,20 +233,15 @@ def render_screener(tab_key, tickers, currency_symbol, title, scan_key, time_key
                     df['name'].str.contains(search, case=False, na=False))
             df = df[mask]
 
-        sort_map = {
-            "RSI (Oversold first)":    ('rsi', True),
-            "RSI (Overbought first)":  ('rsi', False),
-            "PE (Cheapest first)":     ('pe',  True),
-            "PE (Most expensive)":     ('pe',  False),
-            "Growth (Most growth)":    ('growth_exp', False),
-            "Div Yield":               ('div_yield', False),
-            "1D Change Down":          ('change_1d', False),
-            "1D Change Up":            ('change_1d', True),
-        }
-        sc, asc = sort_map.get(sort_by, ('rsi', True))
-        if sc in ('pe','forward_pe','pb'):
-            df = df[df[sc] > 0]
-        df = df.sort_values(sc, ascending=asc, na_position='last')
+        # Apply sort from session state (set by column header buttons)
+        sc  = st.session_state.get('sort_col_'+tab_key, 'rsi')
+        asc = st.session_state.get('sort_asc_'+tab_key, True)
+        if sc in ('pe','forward_pe','pb','growth_exp'):
+            df_sort = df[df[sc].notna() & (df[sc] != 0)]
+            df_null = df[df[sc].isna() | (df[sc] == 0)]
+            df = pd.concat([df_sort.sort_values(sc, ascending=asc), df_null])
+        else:
+            df = df.sort_values(sc, ascending=asc, na_position='last')
 
         scan_time  = st.session_state.get(time_key, '')
         oversold   = len(df[df['rsi'] < 35])
@@ -279,70 +272,80 @@ def render_screener(tab_key, tickers, currency_symbol, title, scan_key, time_key
         debt_lbl = str(df['debt_unit'].iloc[0]) if len(df) > 0 else 'Debt'
         grid = "75px 165px 155px 70px 72px 68px 65px 65px 80px 68px 85px 90px"
 
-        st.markdown(
-            "<div style='display:grid;grid-template-columns:"+grid+";gap:4px;padding:6px 10px;"
-            "background:#0d1a26;border-radius:6px;font-size:0.68rem;color:#6b8fa8;"
-            "text-transform:uppercase;letter-spacing:1px;margin-bottom:4px'>"
-            "<div>Ticker</div><div>Name</div><div>Sector</div>"
-            "<div style='text-align:right'>Price</div>"
-            "<div style='text-align:right'>1D %</div>"
-            "<div style='text-align:right'>RSI</div>"
-            "<div style='text-align:right'>PE</div>"
-            "<div style='text-align:right'>Fwd PE</div>"
-            "<div style='text-align:right'>Growth</div>"
-            "<div style='text-align:right'>P/B</div>"
-            "<div style='text-align:right'>Div %</div>"
-            "<div style='text-align:right'>Debt "+debt_lbl+"</div>"
-            "</div>", unsafe_allow_html=True)
+        # ── Clickable column headers ──────────────────────────────────────
+        def col_btn(label, col_key, tab):
+            cur_col = st.session_state.get('sort_col_'+tab, 'rsi')
+            cur_asc = st.session_state.get('sort_asc_'+tab, True)
+            arrow   = (' ↑' if cur_asc else ' ↓') if cur_col == col_key else ' ↕'
+            if st.button(label+arrow, key='hdr_'+col_key+'_'+tab, use_container_width=True):
+                if st.session_state.get('sort_col_'+tab) == col_key:
+                    st.session_state['sort_asc_'+tab] = not cur_asc
+                else:
+                    st.session_state['sort_col_'+tab] = col_key
+                    st.session_state['sort_asc_'+tab] = True
+                st.rerun()
+
+        st.markdown("<style>.stButton>button{background:#0d1a26 !important;color:#6b8fa8 !important;"
+                    "font-size:0.65rem !important;padding:4px 2px !important;border:1px solid #1e3347 !important;"
+                    "border-radius:4px !important;font-family:DM Sans,sans-serif !important;font-weight:600 !important;"
+                    "text-transform:uppercase;letter-spacing:0.5px;min-height:0 !important;height:28px !important;}"
+                    ".stButton>button:hover{background:#1a2d3d !important;color:#00d4aa !important;border-color:#00d4aa44 !important;}"
+                    "</style>", unsafe_allow_html=True)
+
+        h0,h1,h2,h3,h4,h5,h6,h7,h8,h9,h10,h11 = st.columns([0.8,1.7,1.6,0.8,0.8,0.7,0.7,0.7,0.85,0.7,0.85,0.95])
+        with h0: st.markdown("<div style='color:#6b8fa8;font-size:0.65rem;padding:4px 2px;text-transform:uppercase'>TICKER</div>", unsafe_allow_html=True)
+        with h1: st.markdown("<div style='color:#6b8fa8;font-size:0.65rem;padding:4px 2px;text-transform:uppercase'>NAME</div>", unsafe_allow_html=True)
+        with h2: st.markdown("<div style='color:#6b8fa8;font-size:0.65rem;padding:4px 2px;text-transform:uppercase'>SECTOR</div>", unsafe_allow_html=True)
+        with h3: col_btn('Price',     'price',      tab_key)
+        with h4: col_btn('1D %',      'change_1d',  tab_key)
+        with h5: col_btn('RSI',       'rsi',        tab_key)
+        with h6: col_btn('PE',        'pe',         tab_key)
+        with h7: col_btn('Fwd PE',    'forward_pe', tab_key)
+        with h8: col_btn('Growth',    'growth_exp', tab_key)
+        with h9: col_btn('P/B',       'pb',         tab_key)
+        with h10: col_btn('Div %',    'div_yield',  tab_key)
+        with h11: col_btn('Debt',     'debt_display', tab_key)
 
         for _, row in df.iterrows():
             rsi_val = row['rsi']
             if rsi_val < 35:
-                rsi_bg='#00d4aa18'; rsi_col='#00d4aa'; rsi_e='🟢'
+                rsi_bg='#00d4aa0d'; rsi_col='#00d4aa'; rsi_e='🟢'
             elif rsi_val > 65:
-                rsi_bg='#ff4b4b18'; rsi_col='#ff4b4b'; rsi_e='🔴'
+                rsi_bg='#ff4b4b0d'; rsi_col='#ff4b4b'; rsi_e='🔴'
             else:
-                rsi_bg='#1a2332';   rsi_col='#a0b4c0'; rsi_e='⚪'
+                rsi_bg='#1a233280'; rsi_col='#a0b4c0'; rsi_e='⚪'
 
-            chg     = row['change_1d']
-            chg_col = '#00d4aa' if chg >= 0 else '#ff4b4b'
-            chg_str = ("+"+str(round(chg,2))+"%") if chg >= 0 else (str(round(chg,2))+"%")
-            pe_str  = str(row['pe'])  if row['pe']  > 0 else '-'
-            fpe_str = str(row['forward_pe']) if row['forward_pe'] > 0 else '-'
-            pb_str  = str(row['pb'])  if row['pb']  > 0 else '-'
-            div_str = (str(row['div_yield'])+"%") if row['div_yield'] > 0 else '-'
-            cur     = row['currency']
-            pr      = row['price']
-            price_str = (cur+"{:,.2f}".format(pr)) if pr < 1000 else (cur+"{:,.0f}".format(pr))
-
-            gv = row.get('growth_exp')
-            if gv is not None:
-                grow_str = ("+"+str(round(gv,0))+"%") if gv > 0 else (str(round(gv,0))+"%")
-                grow_col = '#00d4aa' if gv > 0 else '#ff4b4b'
-            else:
-                grow_str = '-'; grow_col = '#6b8fa8'
-
+            chg      = row['change_1d']
+            chg_col  = '#00d4aa' if chg >= 0 else '#ff4b4b'
+            chg_str  = ('+'+str(round(chg,2))+'%') if chg >= 0 else (str(round(chg,2))+'%')
+            pe_str   = str(row['pe'])  if row['pe']  > 0 else '-'
+            fpe_str  = str(row['forward_pe']) if row['forward_pe'] > 0 else '-'
+            pb_str   = str(row['pb'])  if row['pb']  > 0 else '-'
+            div_str  = (str(row['div_yield'])+'%') if row['div_yield'] > 0 else '-'
+            cur      = row['currency']
+            pr       = row['price']
+            price_str= (cur+'{:,.2f}'.format(pr)) if pr < 1000 else (cur+'{:,.0f}'.format(pr))
+            gv       = row.get('growth_exp')
+            grow_str = (('+' if gv > 0 else '')+str(round(gv,0))+'%') if gv is not None else '-'
+            grow_col = '#00d4aa' if (gv or 0) > 0 else ('#ff4b4b' if (gv or 0) < 0 else '#6b8fa8')
             dv       = row.get('debt_display', 0) or 0
-            debt_str = "{:,}".format(int(dv)) if dv > 0 else '-'
+            debt_str = '{:,}'.format(int(dv)) if dv > 0 else '-'
             debt_col = '#ff4b4b' if dv > 500 else ('#f5a623' if dv > 100 else '#a0b4c0')
 
-            st.markdown(
-                "<div style='display:grid;grid-template-columns:"+grid+";"
-                "gap:4px;padding:8px 10px;background:"+rsi_bg+";border-radius:6px;"
-                "margin-bottom:3px;border-left:3px solid "+rsi_col+";align-items:center;font-size:0.8rem'>"
-                "<div style='color:#fff;font-family:Space Mono,monospace;font-weight:700;font-size:0.78rem'>"+str(row['ticker'])+"</div>"
-                "<div style='color:#a0b4c0;font-size:0.75rem'>"+str(row['name'])+"</div>"
-                "<div style='color:#6b8fa8;font-size:0.72rem'>"+str(row['sector'])[:18]+"</div>"
-                "<div style='text-align:right;color:#fff;font-weight:600;font-size:0.78rem'>"+price_str+"</div>"
-                "<div style='text-align:right;color:"+chg_col+";font-weight:600'>"+chg_str+"</div>"
-                "<div style='text-align:right;color:"+rsi_col+";font-weight:700'>"+rsi_e+str(rsi_val)+"</div>"
-                "<div style='text-align:right;color:#f5a623'>"+pe_str+"</div>"
-                "<div style='text-align:right;color:#a0b4c0'>"+fpe_str+"</div>"
-                "<div style='text-align:right;color:"+grow_col+";font-weight:600'>"+grow_str+"</div>"
-                "<div style='text-align:right;color:#a0b4c0'>"+pb_str+"</div>"
-                "<div style='text-align:right;color:#4b9fff'>"+div_str+"</div>"
-                "<div style='text-align:right;color:"+debt_col+";font-size:0.72rem'>"+debt_str+"</div>"
-                "</div>", unsafe_allow_html=True)
+            r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11 = st.columns([0.8,1.7,1.6,0.8,0.8,0.7,0.7,0.7,0.85,0.7,0.85,0.95])
+            row_style = f"background:{rsi_bg};border-left:3px solid {rsi_col};border-radius:4px;padding:6px 4px;margin-bottom:2px;"
+            with r0:  st.markdown(f"<div style='{row_style}color:#fff;font-family:Space Mono,monospace;font-weight:700;font-size:0.78rem'>{row['ticker']}</div>", unsafe_allow_html=True)
+            with r1:  st.markdown(f"<div style='{row_style}color:#a0b4c0;font-size:0.75rem'>{row['name']}</div>", unsafe_allow_html=True)
+            with r2:  st.markdown(f"<div style='{row_style}color:#6b8fa8;font-size:0.72rem'>{str(row['sector'])[:20]}</div>", unsafe_allow_html=True)
+            with r3:  st.markdown(f"<div style='{row_style}color:#fff;font-weight:600;font-size:0.78rem;text-align:right'>{price_str}</div>", unsafe_allow_html=True)
+            with r4:  st.markdown(f"<div style='{row_style}color:{chg_col};font-weight:600;text-align:right'>{chg_str}</div>", unsafe_allow_html=True)
+            with r5:  st.markdown(f"<div style='{row_style}color:{rsi_col};font-weight:700;text-align:right'>{rsi_e}{rsi_val}</div>", unsafe_allow_html=True)
+            with r6:  st.markdown(f"<div style='{row_style}color:#f5a623;text-align:right'>{pe_str}</div>", unsafe_allow_html=True)
+            with r7:  st.markdown(f"<div style='{row_style}color:#a0b4c0;text-align:right'>{fpe_str}</div>", unsafe_allow_html=True)
+            with r8:  st.markdown(f"<div style='{row_style}color:{grow_col};font-weight:600;text-align:right'>{grow_str}</div>", unsafe_allow_html=True)
+            with r9:  st.markdown(f"<div style='{row_style}color:#a0b4c0;text-align:right'>{pb_str}</div>", unsafe_allow_html=True)
+            with r10: st.markdown(f"<div style='{row_style}color:#4b9fff;text-align:right'>{div_str}</div>", unsafe_allow_html=True)
+            with r11: st.markdown(f"<div style='{row_style}color:{debt_col};font-size:0.72rem;text-align:right'>{debt_str}</div>", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
         csv_cols = ['ticker','name','sector','price','change_1d','rsi','rsi_signal',
@@ -366,6 +369,9 @@ for key, val in {
     'hk50_results':None,'hk50_time':None,
     'us50_results': None,'us50_time':None,
     'visitor_counted': False,
+    'sort_col_n50':'rsi','sort_asc_n50':True,
+    'sort_col_hk50':'rsi','sort_asc_hk50':True,
+    'sort_col_us50':'rsi','sort_asc_us50':True,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = val
