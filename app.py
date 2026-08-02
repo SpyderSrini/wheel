@@ -184,8 +184,11 @@ def render_screener(tab_key, tickers, currency_symbol, title, scan_key, time_key
         sec_opts   = sector_options or []
         sec_filter = st.multiselect("🏭 Sector", sec_opts, default=[], placeholder="All sectors", key="sec_"+tab_key)
     with c2:
-        rsi_filter = st.selectbox("📊 RSI Filter",
-            ["All","Oversold (<35) 🟢","Neutral (35-65)","Overbought (>65) 🔴"], key="rsi_"+tab_key)
+        rsi_filter = st.multiselect("📊 RSI Filter",
+            ["🟢 Oversold (<35)","⚪ Neutral (35-65)","🔴 Overbought (>65)"],
+            default=[],
+            placeholder="All signals",
+            key="rsi_"+tab_key)
     with c3:
         st.markdown("<div style='color:#6b8fa8;font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px'>Sort By</div>", unsafe_allow_html=True)
         st.caption("Click column headers ↕ to sort")
@@ -222,12 +225,15 @@ def render_screener(tab_key, tickers, currency_symbol, title, scan_key, time_key
 
         if sec_filter:
             df = df[df['sector'].isin(sec_filter)]
-        if rsi_filter == "Oversold (<35) 🟢":
-            df = df[df['rsi'] < 35]
-        elif rsi_filter == "Neutral (35-65)":
-            df = df[(df['rsi'] >= 35) & (df['rsi'] <= 65)]
-        elif rsi_filter == "Overbought (>65) 🔴":
-            df = df[df['rsi'] > 65]
+        if rsi_filter:
+            masks = []
+            if "🟢 Oversold (<35)"    in rsi_filter: masks.append(df['rsi'] < 35)
+            if "⚪ Neutral (35-65)"   in rsi_filter: masks.append((df['rsi'] >= 35) & (df['rsi'] <= 65))
+            if "🔴 Overbought (>65)"  in rsi_filter: masks.append(df['rsi'] > 65)
+            if masks:
+                combined = masks[0]
+                for m in masks[1:]: combined = combined | m
+                df = df[combined]
         if search:
             mask = (df['ticker'].str.contains(search.upper(), na=False) |
                     df['name'].str.contains(search, case=False, na=False))
