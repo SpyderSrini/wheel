@@ -99,7 +99,9 @@ def safe_float(val, default=0.0):
 
 def fetch_data(ticker, currency_symbol):
     try:
-        raw = yf.download(ticker, period='6mo', auto_adjust=True, progress=False)
+        # ── Step 1: Price & RSI from yf.download ─────────────────────────
+        raw = yf.download(ticker, period='6mo', auto_adjust=True,
+                          progress=False, timeout=10)
         if isinstance(raw.columns, pd.MultiIndex):
             raw.columns = raw.columns.get_level_values(0)
         if raw is None or len(raw) < 20:
@@ -111,33 +113,60 @@ def fetch_data(ticker, currency_symbol):
         if price <= 0:
             return None
         rsi       = calc_rsi(close)
-        change_1d = ((price - float(close.iloc[-2])) / float(close.iloc[-2])) * 100 if len(close) >= 2 else 0.0
+        change_1d = ((price - float(close.iloc[-2])) / float(close.iloc[-2])) * 100
         ma50_val  = float(close.rolling(50).mean().iloc[-1]) if len(close) >= 50 else None
-        try:
-            info = yf.Ticker(ticker).info or {}
-        except:
-            info = {}
+
+        # ── Step 2: Fundamentals — try fast_info first, fallback to info ─
+        stock = yf.Ticker(ticker)
+        info  = {}
+        # Try getting info with retries
+        for attempt in range(2):
+            try:
+                info = stock.info or {}
+                # Validate info is useful (not just a stub)
+                if info.get('regularMarketPrice') or info.get('trailingPE') or info.get('shortName'):
+                    break
+                info = {}
+            except Exception:
+                info = {}
+
+        # If info is still empty, try get_info()
+        if not info:
+            try:
+                info = stock.get_info() or {}
+            except Exception:
+                info = {}
+
+        # ── Step 3: Extract fundamentals safely ──────────────────────────
         pe         = safe_float(info.get('trailingPE'))
         forward_pe = safe_float(info.get('forwardPE'))
         pb         = safe_float(info.get('priceToBook'))
         mkt_cap    = safe_float(info.get('marketCap'))
         total_debt = safe_float(info.get('totalDebt'))
-        div_yield  = 0.0
-        div_raw    = info.get('dividendYield')
-        div_rate   = safe_float(info.get('dividendRate'))
+
+        # Name and sector — fall back gracefully
+        name   = (info.get('shortName') or info.get('longName') or
+                  info.get('displayName') or ticker.replace('.NS','').replace('.HK',''))
+        sector = (info.get('sector') or info.get('industry') or
+                  info.get('sectorDisp') or 'N/A')
+
+        # ── Step 4: Dividend yield ────────────────────────────────────────
+        div_yield = 0.0
+        div_raw   = info.get('dividendYield')
+        div_rate  = safe_float(info.get('dividendRate'))
         if div_raw is not None:
             dv = safe_float(div_raw)
-            if 0 < dv < 1:
-                div_yield = dv * 100
-            elif 1 <= dv <= 20:
-                div_yield = dv
+            if 0 < dv < 1:       div_yield = dv * 100   # decimal 0.035
+            elif 1 <= dv <= 20:  div_yield = dv          # already pct
         if div_yield == 0.0 and div_rate > 0 and price > 0:
             div_yield = (div_rate / price) * 100
-        div_yield  = round(min(div_yield, 20.0), 2)
-        # Growth%: +ve when FwdPE < PE (earnings growing), -ve when FwdPE > PE (earnings shrinking)
-        growth_exp = round(((pe - forward_pe) / forward_pe) * 100, 1) if pe > 0 and forward_pe > 0 else None
-        sector = str(info.get('sector') or info.get('industry') or 'N/A')
-        name   = str(info.get('shortName') or info.get('longName') or ticker)
+        div_yield = round(min(div_yield, 20.0), 2)
+
+        # ── Step 5: Growth % = (PE-FwdPE)/FwdPE*100 ─────────────────────
+        # +ve = Fwd PE lower than trailing PE = earnings expected to grow
+        growth_exp = round(((pe - forward_pe) / forward_pe) * 100, 1)                      if pe > 0 and forward_pe > 0 else None
+
+        # ── Step 6: Debt display by market ───────────────────────────────
         if '.HK' in ticker:
             debt_display = round(total_debt / 1e8, 0) if total_debt > 0 else 0
             debt_unit    = 'HK$100M'
@@ -147,28 +176,31 @@ def fetch_data(ticker, currency_symbol):
         else:
             debt_display = round(total_debt / 1e9, 1) if total_debt > 0 else 0
             debt_unit    = 'USD B'
+
         raw_t = ticker.replace('.NS','')
         if '.HK' in ticker:
             raw_t = ticker.replace('.HK','').lstrip('0')
+
         return {
             'ticker':       raw_t,
             'raw_ticker':   ticker,
-            'name':         name[:24],
-            'sector':       sector,
+            'name':         str(name)[:24],
+            'sector':       str(sector),
             'currency':     currency_symbol,
             'price':        round(price, 2),
             'change_1d':    round(change_1d, 2),
             'rsi':          rsi,
             'rsi_signal':   'Oversold' if rsi < 35 else ('Overbought' if rsi > 65 else 'Neutral'),
-            'pe':           round(pe, 1),
-            'forward_pe':   round(forward_pe, 1),
+            'pe':           round(pe, 1)  if pe  > 0 else 0,
+            'forward_pe':   round(forward_pe, 1) if forward_pe > 0 else 0,
             'growth_exp':   growth_exp,
-            'pb':           round(pb, 2),
+            'pb':           round(pb, 2) if pb > 0 else 0,
             'div_yield':    div_yield,
             'debt_display': debt_display,
             'debt_unit':    debt_unit,
             'market_cap':   round(mkt_cap / 1e7, 0) if mkt_cap > 0 else 0,
-            'above_50ma':   (price > ma50_val) if ma50_val and not np.isnan(ma50_val) else None,
+            'above_50ma':   (price > ma50_val)
+                             if ma50_val and not np.isnan(ma50_val) else None,
         }
     except Exception:
         return None
