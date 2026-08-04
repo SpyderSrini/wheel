@@ -134,6 +134,7 @@ def fetch_data(ticker, currency_symbol):
         if div_yield == 0.0 and div_rate > 0 and price > 0:
             div_yield = (div_rate / price) * 100
         div_yield  = round(min(div_yield, 20.0), 2)
+        # Growth%: +ve when FwdPE < PE (earnings growing), -ve when FwdPE > PE (earnings shrinking)
         growth_exp = round(((pe - forward_pe) / forward_pe) * 100, 1) if pe > 0 and forward_pe > 0 else None
         sector = str(info.get('sector') or info.get('industry') or 'N/A')
         name   = str(info.get('shortName') or info.get('longName') or ticker)
