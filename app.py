@@ -99,14 +99,14 @@ def safe_float(val, default=0.0):
 
 def fetch_data(ticker, currency_symbol):
     try:
-        # ── Step 1: Price & RSI from yf.download ─────────────────────────
-        raw = yf.download(ticker, period='6mo', auto_adjust=True,
-                          progress=False, timeout=10)
-        if isinstance(raw.columns, pd.MultiIndex):
-            raw.columns = raw.columns.get_level_values(0)
-        if raw is None or len(raw) < 20:
+        # ── Use single Ticker object for everything ───────────────────────
+        stock = yf.Ticker(ticker)
+
+        # ── Price history ─────────────────────────────────────────────────
+        hist = stock.history(period='6mo', auto_adjust=True)
+        if hist is None or len(hist) < 20:
             return None
-        close = raw['Close'].dropna()
+        close = hist['Close'].dropna()
         if len(close) < 20:
             return None
         price     = float(close.iloc[-1])
@@ -116,57 +116,68 @@ def fetch_data(ticker, currency_symbol):
         change_1d = ((price - float(close.iloc[-2])) / float(close.iloc[-2])) * 100
         ma50_val  = float(close.rolling(50).mean().iloc[-1]) if len(close) >= 50 else None
 
-        # ── Step 2: Fundamentals — try fast_info first, fallback to info ─
-        stock = yf.Ticker(ticker)
-        info  = {}
-        # Try getting info with retries
-        for attempt in range(2):
-            try:
-                info = stock.info or {}
-                # Validate info is useful (not just a stub)
-                if info.get('regularMarketPrice') or info.get('trailingPE') or info.get('shortName'):
-                    break
-                info = {}
-            except Exception:
-                info = {}
+        # ── Fundamentals via fast_info (most reliable) ────────────────────
+        fi = {}
+        try:
+            fi = stock.fast_info or {}
+        except Exception:
+            fi = {}
 
-        # If info is still empty, try get_info()
-        if not info:
-            try:
-                info = stock.get_info() or {}
-            except Exception:
-                info = {}
+        # Try full info dict
+        info = {}
+        try:
+            info = stock.info or {}
+        except Exception:
+            info = {}
 
-        # ── Step 3: Extract fundamentals safely ──────────────────────────
-        pe         = safe_float(info.get('trailingPE'))
+        # ── PE: try multiple sources ──────────────────────────────────────
+        pe = safe_float(info.get('trailingPE') or
+                        info.get('trailingEps') and price / safe_float(info.get('trailingEps'))
+                        if safe_float(info.get('trailingEps', 0)) > 0 else None)
+        if pe == 0:
+            # Try computing from fast_info
+            try:
+                eps = safe_float(getattr(fi, 'trailing_eps', None) or
+                                 info.get('trailingEps', 0))
+                pe  = round(price / eps, 1) if eps > 0 else 0
+            except Exception:
+                pe = 0
+
         forward_pe = safe_float(info.get('forwardPE'))
+        if forward_pe == 0:
+            try:
+                fwd_eps = safe_float(info.get('forwardEps', 0))
+                forward_pe = round(price / fwd_eps, 1) if fwd_eps > 0 else 0
+            except Exception:
+                forward_pe = 0
+
         pb         = safe_float(info.get('priceToBook'))
-        mkt_cap    = safe_float(info.get('marketCap'))
+        mkt_cap    = (safe_float(getattr(fi, 'market_cap', None)) or
+                      safe_float(info.get('marketCap')))
         total_debt = safe_float(info.get('totalDebt'))
 
-        # Name and sector — fall back gracefully
-        name   = (info.get('shortName') or info.get('longName') or
-                  info.get('displayName') or ticker.replace('.NS','').replace('.HK',''))
-        sector = (info.get('sector') or info.get('industry') or
-                  info.get('sectorDisp') or 'N/A')
+        # ── Name and sector ───────────────────────────────────────────────
+        name = (info.get('shortName') or info.get('longName') or
+                info.get('displayName') or
+                ticker.replace('.NS','').replace('.HK','').lstrip('0'))
+        sector = (info.get('sector') or info.get('industry') or 'N/A')
 
-        # ── Step 4: Dividend yield ────────────────────────────────────────
+        # ── Dividend yield ────────────────────────────────────────────────
         div_yield = 0.0
         div_raw   = info.get('dividendYield')
         div_rate  = safe_float(info.get('dividendRate'))
         if div_raw is not None:
             dv = safe_float(div_raw)
-            if 0 < dv < 1:       div_yield = dv * 100   # decimal 0.035
-            elif 1 <= dv <= 20:  div_yield = dv          # already pct
+            if 0 < dv < 1:      div_yield = dv * 100
+            elif 1 <= dv <= 20: div_yield = dv
         if div_yield == 0.0 and div_rate > 0 and price > 0:
             div_yield = (div_rate / price) * 100
         div_yield = round(min(div_yield, 20.0), 2)
 
-        # ── Step 5: Growth % = (PE-FwdPE)/FwdPE*100 ─────────────────────
-        # +ve = Fwd PE lower than trailing PE = earnings expected to grow
+        # ── Growth % ──────────────────────────────────────────────────────
         growth_exp = round(((pe - forward_pe) / forward_pe) * 100, 1)                      if pe > 0 and forward_pe > 0 else None
 
-        # ── Step 6: Debt display by market ───────────────────────────────
+        # ── Debt ──────────────────────────────────────────────────────────
         if '.HK' in ticker:
             debt_display = round(total_debt / 1e8, 0) if total_debt > 0 else 0
             debt_unit    = 'HK$100M'
@@ -191,7 +202,7 @@ def fetch_data(ticker, currency_symbol):
             'change_1d':    round(change_1d, 2),
             'rsi':          rsi,
             'rsi_signal':   'Oversold' if rsi < 35 else ('Overbought' if rsi > 65 else 'Neutral'),
-            'pe':           round(pe, 1)  if pe  > 0 else 0,
+            'pe':           round(pe, 1) if pe > 0 else 0,
             'forward_pe':   round(forward_pe, 1) if forward_pe > 0 else 0,
             'growth_exp':   growth_exp,
             'pb':           round(pb, 2) if pb > 0 else 0,
